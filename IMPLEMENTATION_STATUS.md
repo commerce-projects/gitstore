@@ -28,7 +28,7 @@ All 12 tasks complete:
 - ✅ Rust/Go/Node.js initialization with dependencies
 - ✅ GraphQL schemas copied to shared/schemas/
 - ✅ Dockerfiles for all three services
-- ✅ docker-compose.yml configured
+- ✅ compose.yml configured
 - ✅ README.md with architecture
 
 **Verification**:
@@ -260,7 +260,7 @@ All tasks (T127-T144) pending:
 7. ✅ Get real-time updates via websocket
 8. ✅ Run automated tests (cargo test, go test)
 9. ✅ Build Docker images for all services
-10. ✅ Deploy via docker-compose
+10. ✅ Deploy via docker compose
 
 ### You CANNOT (Yet):
 1. ❌ Use Admin UI to create/edit products (no UI pages)
@@ -314,8 +314,8 @@ go test ./...
 go test -v ./tests/contract/...
 
 # Docker
-docker-compose build
-docker-compose up
+docker compose build
+docker compose up
 
 # Full Test Suite
 cargo test && go test ./... && npm test

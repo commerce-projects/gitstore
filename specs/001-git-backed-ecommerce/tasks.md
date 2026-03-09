@@ -20,7 +20,7 @@ Multi-service architecture:
 - **API**: `api/internal/`, `api/cmd/`, `api/tests/`
 - **Admin UI**: `admin-ui/src/`, `admin-ui/tests/`
 - **Shared**: `shared/schemas/`
-- **Docker**: `docker/`, `docker-compose.yml`
+- **Docker**: `docker/`, `compose.yml`
 
 ---
 
@@ -36,7 +36,7 @@ Multi-service architecture:
 - [ ] T006 [P] Create docker/git-server.Dockerfile for Rust multi-stage build
 - [ ] T007 [P] Create docker/api.Dockerfile for Go multi-stage build
 - [ ] T008 [P] Create docker/admin-ui.Dockerfile for Node.js build
-- [ ] T009 Create docker-compose.yml with services: git-server (ports 9418, 8080), api (port 4000), admin-ui (port 3000)
+- [X] T009 Create compose.yml with services: git-server (ports 9418, 8080), api (port 4000), admin-ui (port 3000)
 - [ ] T010 [P] Configure gqlgen.yml in api/ pointing to shared/schemas/*.graphql
 - [ ] T011 [P] Configure astro.config.mjs in admin-ui/ with React integration
 - [ ] T012 Create README.md with quickstart instructions and architecture diagram

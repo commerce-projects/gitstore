@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/commerce-projects/gitstore/api/internal/gitclient"
+	"github.com/commerce-projects/gitstore/api/internal/models"
 	"github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -337,6 +340,387 @@ func TestCreateProduct(t *testing.T) {
 		filePath := filepath.Join(repoPath, "products/uncategorized/UNCAT-001.md")
 		_, err = os.Stat(filePath)
 		require.NoError(t, err)
+	})
+}
+
+func TestUpdateProduct(t *testing.T) {
+	t.Run("should update product fields", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial product
+		createInput := CreateProductInput{
+			SKU:        "TEST-UPDATE-001",
+			Title:      "Original Title",
+			Price:      29.99,
+			CategoryID: "cat_test",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+		originalProduct := createPayload.Product
+
+		// Read the created file to get content for version
+		filePath := filepath.Join(repoPath, "products/test/TEST-UPDATE-001.md")
+		originalContent, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+
+		// Calculate version
+		versionChecker := NewVersionChecker()
+		version := versionChecker.CalculateVersion(string(originalContent))
+
+		// Update the product
+		newTitle := "Updated Title"
+		newPrice := 39.99
+		updateInput := UpdateProductInput{
+			ID:      originalProduct.ID,
+			Title:   &newTitle,
+			Price:   &newPrice,
+			Version: version,
+		}
+
+		// Mock readProductFromGit by directly reading and parsing
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return originalProduct, string(originalContent), nil
+		}
+
+		updatePayload, err := service.UpdateProduct(ctx, updateInput)
+		require.NoError(t, err)
+		require.NotNil(t, updatePayload)
+		require.Nil(t, updatePayload.Conflict)
+
+		updated := updatePayload.Product
+		assert.Equal(t, "Updated Title", updated.Title)
+		assert.Equal(t, 39.99, updated.Price)
+		assert.Equal(t, originalProduct.SKU, updated.SKU) // Unchanged
+		assert.True(t, updated.UpdatedAt.After(originalProduct.CreatedAt))
+	})
+
+	t.Run("should detect version conflict", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial product
+		createInput := CreateProductInput{
+			SKU:        "TEST-CONFLICT-001",
+			Title:      "Original Title",
+			Price:      29.99,
+			CategoryID: "cat_test",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+		originalProduct := createPayload.Product
+
+		// Read original content
+		filePath := filepath.Join(repoPath, "products/test/TEST-CONFLICT-001.md")
+		originalContent, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+
+		// Simulate concurrent update - modify the file
+		modifiedProduct := *originalProduct
+		modifiedProduct.Price = 49.99
+		modifiedProduct.UpdatedAt = time.Now().UTC()
+
+		frontMatter := gitclient.ProductFrontMatter{
+			ID:              modifiedProduct.ID,
+			SKU:             modifiedProduct.SKU,
+			Title:           modifiedProduct.Title,
+			Price:           modifiedProduct.Price,
+			Currency:        modifiedProduct.Currency,
+			InventoryStatus: modifiedProduct.InventoryStatus,
+			CategoryID:      modifiedProduct.CategoryID,
+			CollectionIDs:   modifiedProduct.CollectionIDs,
+			Images:          modifiedProduct.Images,
+			Metadata:        modifiedProduct.Metadata,
+			CreatedAt:       modifiedProduct.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:       modifiedProduct.UpdatedAt.Format(time.RFC3339),
+		}
+		modifiedContent, _ := gitclient.GenerateProductMarkdown(frontMatter, modifiedProduct.Body)
+
+		// Try to update with stale version
+		versionChecker := NewVersionChecker()
+		staleVersion := versionChecker.CalculateVersion(string(originalContent))
+
+		newTitle := "My Update"
+		updateInput := UpdateProductInput{
+			ID:      originalProduct.ID,
+			Title:   &newTitle,
+			Version: staleVersion,
+		}
+
+		// Mock to return modified content
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return &modifiedProduct, modifiedContent, nil
+		}
+
+		updatePayload, err := service.UpdateProduct(ctx, updateInput)
+		require.NoError(t, err)
+		require.NotNil(t, updatePayload.Conflict)
+
+		conflict := updatePayload.Conflict
+		assert.True(t, conflict.Detected)
+		assert.NotEmpty(t, conflict.CurrentVersion)
+		assert.NotEmpty(t, conflict.AttemptedVersion)
+		assert.NotEmpty(t, conflict.Diff)
+		assert.NotNil(t, conflict.CurrentProduct)
+	})
+
+	t.Run("should handle SKU change", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial product
+		createInput := CreateProductInput{
+			SKU:        "OLD-SKU-001",
+			Title:      "Product",
+			Price:      10.00,
+			CategoryID: "cat_test",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+		originalProduct := createPayload.Product
+
+		filePath := filepath.Join(repoPath, "products/test/OLD-SKU-001.md")
+		originalContent, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+
+		versionChecker := NewVersionChecker()
+		version := versionChecker.CalculateVersion(string(originalContent))
+
+		// Update SKU
+		newSKU := "NEW-SKU-001"
+		updateInput := UpdateProductInput{
+			ID:      originalProduct.ID,
+			SKU:     &newSKU,
+			Version: version,
+		}
+
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return originalProduct, string(originalContent), nil
+		}
+
+		_, err = service.UpdateProduct(ctx, updateInput)
+		require.NoError(t, err)
+
+		// Old file should be deleted
+		_, err = os.Stat(filePath)
+		assert.True(t, os.IsNotExist(err))
+
+		// New file should exist
+		newFilePath := filepath.Join(repoPath, "products/test/NEW-SKU-001.md")
+		_, err = os.Stat(newFilePath)
+		assert.NoError(t, err)
+	})
+
+	t.Run("should handle category change", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create product in one category
+		createInput := CreateProductInput{
+			SKU:        "MOVE-SKU-001",
+			Title:      "Product",
+			Price:      10.00,
+			CategoryID: "cat_electronics",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+		originalProduct := createPayload.Product
+
+		oldFilePath := filepath.Join(repoPath, "products/electronics/MOVE-SKU-001.md")
+		originalContent, err := os.ReadFile(oldFilePath)
+		require.NoError(t, err)
+
+		versionChecker := NewVersionChecker()
+		version := versionChecker.CalculateVersion(string(originalContent))
+
+		// Move to different category
+		newCategory := "cat_accessories"
+		updateInput := UpdateProductInput{
+			ID:         originalProduct.ID,
+			CategoryID: &newCategory,
+			Version:    version,
+		}
+
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return originalProduct, string(originalContent), nil
+		}
+
+		_, err = service.UpdateProduct(ctx, updateInput)
+		require.NoError(t, err)
+
+		// Old file should be deleted
+		_, err = os.Stat(oldFilePath)
+		assert.True(t, os.IsNotExist(err))
+
+		// New file should exist in new category folder
+		newFilePath := filepath.Join(repoPath, "products/accessories/MOVE-SKU-001.md")
+		_, err = os.Stat(newFilePath)
+		assert.NoError(t, err)
+	})
+
+	t.Run("should validate updated fields", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create product
+		createInput := CreateProductInput{
+			SKU:        "VALIDATE-001",
+			Title:      "Product",
+			Price:      10.00,
+			CategoryID: "cat_test",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+		originalProduct := createPayload.Product
+
+		filePath := filepath.Join(repoPath, "products/test/VALIDATE-001.md")
+		originalContent, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+
+		versionChecker := NewVersionChecker()
+		version := versionChecker.CalculateVersion(string(originalContent))
+
+		// Try to update with invalid price
+		invalidPrice := -10.00
+		updateInput := UpdateProductInput{
+			ID:      originalProduct.ID,
+			Price:   &invalidPrice,
+			Version: version,
+		}
+
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return originalProduct, string(originalContent), nil
+		}
+
+		_, err = service.UpdateProduct(ctx, updateInput)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validation failed")
+		assert.Contains(t, err.Error(), "negative")
+	})
+
+	t.Run("should only update provided fields", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create product with all fields
+		quantity := 100
+		createInput := CreateProductInput{
+			SKU:               "PARTIAL-001",
+			Title:             "Original Title",
+			Price:             29.99,
+			CategoryID:        "cat_test",
+			InventoryQuantity: &quantity,
+			CollectionIDs:     []string{"coll_1", "coll_2"},
+			Images:            []string{"image1.jpg"},
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+		originalProduct := createPayload.Product
+
+		filePath := filepath.Join(repoPath, "products/test/PARTIAL-001.md")
+		originalContent, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+
+		versionChecker := NewVersionChecker()
+		version := versionChecker.CalculateVersion(string(originalContent))
+
+		// Update only price
+		newPrice := 39.99
+		updateInput := UpdateProductInput{
+			ID:      originalProduct.ID,
+			Price:   &newPrice,
+			Version: version,
+		}
+
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return originalProduct, string(originalContent), nil
+		}
+
+		updatePayload, err := service.UpdateProduct(ctx, updateInput)
+		require.NoError(t, err)
+
+		updated := updatePayload.Product
+		assert.Equal(t, 39.99, updated.Price) // Updated
+		assert.Equal(t, "Original Title", updated.Title) // Unchanged
+		assert.Equal(t, 100, *updated.InventoryQuantity) // Unchanged
+		assert.Equal(t, []string{"coll_1", "coll_2"}, updated.CollectionIDs) // Unchanged
+	})
+}
+
+func TestApplyUpdates(t *testing.T) {
+	service := NewProductMutationService("", "")
+
+	existing := &models.Product{
+		ID:              "prod_123",
+		SKU:             "ORIGINAL-SKU",
+		Title:           "Original Title",
+		Price:           29.99,
+		Currency:        "USD",
+		InventoryStatus: "IN_STOCK",
+		CategoryID:      "cat_original",
+		CollectionIDs:   []string{"coll_1"},
+		Images:          []string{"img1.jpg"},
+	}
+
+	t.Run("should apply all provided updates", func(t *testing.T) {
+		newSKU := "NEW-SKU"
+		newTitle := "New Title"
+		newPrice := 39.99
+		newCategory := "cat_new"
+
+		input := UpdateProductInput{
+			SKU:        &newSKU,
+			Title:      &newTitle,
+			Price:      &newPrice,
+			CategoryID: &newCategory,
+		}
+
+		updated := service.applyUpdates(existing, input)
+
+		assert.Equal(t, "NEW-SKU", updated.SKU)
+		assert.Equal(t, "New Title", updated.Title)
+		assert.Equal(t, 39.99, updated.Price)
+		assert.Equal(t, "cat_new", updated.CategoryID)
+		assert.Equal(t, "prod_123", updated.ID) // Unchanged
+	})
+
+	t.Run("should preserve unspecified fields", func(t *testing.T) {
+		newTitle := "Updated Title Only"
+
+		input := UpdateProductInput{
+			Title: &newTitle,
+		}
+
+		updated := service.applyUpdates(existing, input)
+
+		assert.Equal(t, "Updated Title Only", updated.Title)
+		assert.Equal(t, "ORIGINAL-SKU", updated.SKU) // Unchanged
+		assert.Equal(t, 29.99, updated.Price) // Unchanged
+		assert.Equal(t, "cat_original", updated.CategoryID) // Unchanged
 	})
 }
 

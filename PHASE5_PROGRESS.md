@@ -3,7 +3,7 @@
 **Feature**: User Story 3 - Admin UI with Mutations
 **Branch**: `002-admin-ui-mutations`
 **Started**: 2026-03-10
-**Status**: 🟡 In Progress (14.9% complete)
+**Status**: 🟡 In Progress (19.1% complete)
 
 ---
 
@@ -15,7 +15,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 
 ---
 
-## Completed Tasks (7/47)
+## Completed Tasks (9/47)
 
 ### Tests (Test-First Development ✅)
 - ✅ **T079**: Contract test for `createProduct` mutation (3 scenarios, skipped)
@@ -54,6 +54,20 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
   - Generate next semantic version automatically
   - **Tests**: 20/20 passing ✅
 
+- ✅ **T088**: Optimistic lock version checker (`api/internal/graph/version_check.go`)
+  - SHA-256 content-based versioning
+  - Detect concurrent modifications
+  - Version mismatch error handling
+  - Shortened hashes for UI display
+  - **Tests**: 22/22 passing ✅
+
+- ✅ **T089**: Diff generator (`api/internal/graph/diff.go`)
+  - Generate unified diffs between versions
+  - Three-way merge conflict detection
+  - Character-level diff with semantic cleanup
+  - Conflict summary for user resolution
+  - **Tests**: 18/18 passing ✅
+
 ---
 
 ## Next Steps (Remaining Tasks)
@@ -63,8 +77,8 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 - [X] **T087**: Git tag creator (create annotated release tags)
 
 ### Mutation Infrastructure (T088-T089)
-- [ ] **T088**: Optimistic lock version checker
-- [ ] **T089**: Diff generator for conflicts
+- [X] **T088**: Optimistic lock version checker
+- [X] **T089**: Diff generator for conflicts
 
 ### GraphQL Mutations (T090-T101)
 - [ ] T090: createProduct mutation resolver
@@ -119,7 +133,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 ✓ TestGenerateCommitMessage (3/3 passing)
 ```
 
-**Total**: 74 test cases (61 passing, 13 skipped)
+**Total**: 114 test cases (101 passing, 13 skipped)
 
 ---
 
@@ -178,8 +192,12 @@ Storefront Reload
 - `api/internal/gitclient/push_test.go` (244 lines)
 - `api/internal/gitclient/tag.go` (268 lines)
 - `api/internal/gitclient/tag_test.go` (413 lines)
+- `api/internal/graph/version_check.go` (182 lines)
+- `api/internal/graph/version_check_test.go` (318 lines)
+- `api/internal/graph/diff.go` (321 lines)
+- `api/internal/graph/diff_test.go` (352 lines)
 
-**Total**: 2,068 lines of code + tests
+**Total**: 3,241 lines of code + tests
 
 ---
 
@@ -200,8 +218,8 @@ Storefront Reload
 1. **7291b8b**: test: add contract tests for Phase 5 mutations (T079-T081)
 2. **2da2b3c**: feat: implement markdown file generator (T084)
 3. **982e9ca**: feat: implement git commit builder (T085)
-4. *(pending)*: feat: implement git push client (T086)
-5. *(pending)*: feat: implement git tag creator (T087)
+4. **038a175**: feat: implement git push and tag operations (T086-T087)
+5. **ae10779**: feat: implement optimistic locking and diff generation (T088-T089)
 
 ---
 
@@ -254,8 +272,9 @@ golangci-lint run ./...
 
 ## Progress Metrics
 
-- **Overall**: 7/47 tasks (14.9%)
+- **Overall**: 9/47 tasks (19.1%)
 - **Git Client**: 4/4 tasks (100%) ✅
+- **Mutation Infrastructure**: 2/2 tasks (100%) ✅
 - **Mutations**: 0/12 tasks (0%)
 - **Auth**: 0/2 tasks (0%)
 - **Admin UI**: 0/23 tasks (0%)
@@ -268,8 +287,9 @@ golangci-lint run ./...
 ## Notes
 
 - ✅ All foundational git operations complete (write, commit, push, tag)
-- Git client package is 100% complete with 61 passing tests
-- Ready to implement mutation resolvers (T088-T101)
+- ✅ All mutation infrastructure complete (optimistic locking, diff generation)
+- Git client + mutation infrastructure: 101 passing tests
+- Ready to implement GraphQL mutation resolvers (T090-T101)
 - Admin UI can be built incrementally once mutations work
 - E2E tests (T082-T083) deferred until UI is functional
 
@@ -277,4 +297,4 @@ golangci-lint run ./...
 
 **Last Updated**: 2026-03-10
 **Branch**: https://github.com/commerce-projects/gitstore/tree/002-admin-ui-mutations
-**Status**: Git client complete! Ready for T088 (optimistic locking)
+**Status**: Mutation infrastructure complete! Ready for T090 (createProduct resolver)

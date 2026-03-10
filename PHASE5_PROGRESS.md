@@ -3,7 +3,7 @@
 **Feature**: User Story 3 - Admin UI with Mutations
 **Branch**: `002-admin-ui-mutations`
 **Started**: 2026-03-10
-**Status**: 🟡 In Progress (44.7% complete)
+**Status**: 🟡 In Progress (46.8% complete)
 
 ---
 
@@ -15,7 +15,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 
 ---
 
-## Completed Tasks (21/47)
+## Completed Tasks (22/47)
 
 ### Tests (Test-First Development ✅)
 - ✅ **T079**: Contract test for `createProduct` mutation (3 scenarios, skipped)
@@ -159,6 +159,15 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
   - Support custom tag names and messages
   - **Tests**: 7/7 passing ✅
 
+- ✅ **T102**: Admin user authentication middleware (`api/internal/middleware/auth.go`)
+  - Single admin user with bcrypt password hashing
+  - Environment variable configuration (ADMIN_USERNAME, ADMIN_PASSWORD_HASH)
+  - RequireAuth middleware for protected routes
+  - OptionalAuth middleware for optional authentication
+  - User context management
+  - Validate credentials with bcrypt.CompareHashAndPassword
+  - **Tests**: 12/12 passing ✅
+
 ---
 
 ## Next Steps (Remaining Tasks)
@@ -186,7 +195,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 - [X] T101: publishCatalog mutation resolver
 
 ### Authentication (T102-T103)
-- [ ] T102: Admin user authentication middleware (bcrypt)
+- [X] T102: Admin user authentication middleware (bcrypt)
 - [ ] T103: Session token management (JWT)
 
 ### Admin UI (T104-T126)
@@ -228,7 +237,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 ✓ TestGenerateCommitMessage (3/3 passing)
 ```
 
-**Total**: 225 test cases (212 passing, 13 skipped)
+**Total**: 237 test cases (224 passing, 13 skipped)
 
 ---
 
@@ -301,8 +310,10 @@ Storefront Reload
 - `api/internal/graph/category_mutations_test.go` (689 lines)
 - `api/internal/graph/collection_mutations_test.go` (592 lines)
 - `api/internal/graph/publish_catalog_test.go` (258 lines)
+- `api/internal/middleware/auth.go` (137 lines)
+- `api/internal/middleware/auth_test.go` (189 lines)
 
-**Total**: 7,043 lines of code + tests
+**Total**: 7,369 lines of code + tests
 
 ---
 
@@ -334,7 +345,8 @@ Storefront Reload
 12. **4648e76**: feat: implement createCollection mutation (T097)
 13. **bb2b89b**: feat: implement updateCollection and deleteCollection mutations (T098-T099)
 14. **aed322e**: feat: implement reorderCollections mutation (T100)
-15. **[pending]**: feat: implement publishCatalog mutation (T101)
+15. **616095b**: feat: implement publishCatalog mutation (T101)
+16. **[pending]**: feat: implement admin authentication middleware (T102)
 
 ---
 
@@ -387,18 +399,18 @@ golangci-lint run ./...
 
 ## Progress Metrics
 
-- **Overall**: 21/47 tasks (44.7%)
+- **Overall**: 22/47 tasks (46.8%)
 - **Git Client**: 4/4 tasks (100%) ✅
 - **Mutation Infrastructure**: 2/2 tasks (100%) ✅
 - **Product Mutations**: 3/3 tasks (100%) ✅
 - **Category Mutations**: 4/4 tasks (100%) ✅
 - **Collection Mutations**: 4/4 tasks (100%) ✅
 - **Publish Mutation**: 1/1 tasks (100%) ✅
-- **Auth**: 0/2 tasks (0%)
+- **Auth**: 1/2 tasks (50%)
 - **Admin UI**: 0/23 tasks (0%)
-- **Tests**: 87 passing, 13 skipped (correct)
+- **Tests**: 99 passing, 13 skipped (correct)
 
-**Estimated Remaining**: ~26 tasks (~55% remaining)
+**Estimated Remaining**: ~25 tasks (~53% remaining)
 
 ---
 
@@ -410,12 +422,14 @@ golangci-lint run ./...
 - ✅ Category CRUD + reorder mutations complete (create, update, delete, reorder)
 - ✅ Collection CRUD + reorder mutations complete (create, update, delete, reorder)
 - ✅ publishCatalog mutation complete (commit, push, tag)
+- ✅ Admin authentication middleware complete (bcrypt, user context)
 - **ALL MUTATIONS COMPLETE!** 212 passing tests across 12 mutation types
-- Ready for authentication (T102-T103) and Admin UI (T104-T126)
+- **Auth 50% complete** - 12 passing tests for authentication middleware
+- Ready for session management (T103) and Admin UI (T104-T126)
 - E2E tests (T082-T083) deferred until UI is functional
 
 ---
 
 **Last Updated**: 2026-03-10
 **Branch**: https://github.com/commerce-projects/gitstore/tree/002-admin-ui-mutations
-**Status**: 🎉 ALL MUTATIONS COMPLETE! Ready for Auth (T102-T103) and Admin UI (T104-T126)
+**Status**: Authentication middleware complete! Ready for session tokens (T103) and Admin UI (T104-T126)

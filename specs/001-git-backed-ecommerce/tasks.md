@@ -209,7 +209,7 @@ Multi-service architecture:
 - [X] T090 [US3] Implement createProduct mutation resolver in api/internal/graph/mutations.resolvers.go
 - [X] T091 [US3] Implement updateProduct mutation resolver with optimistic locking in api/internal/graph/mutations.resolvers.go
 - [X] T092 [US3] Implement deleteProduct mutation resolver in api/internal/graph/mutations.resolvers.go
-- [ ] T093 [US3] Implement createCategory mutation resolver in api/internal/graph/mutations.resolvers.go
+- [X] T093 [US3] Implement createCategory mutation resolver in api/internal/graph/mutations.resolvers.go
 - [ ] T094 [US3] Implement updateCategory mutation resolver in api/internal/graph/mutations.resolvers.go
 - [ ] T095 [US3] Implement deleteCategory mutation resolver in api/internal/graph/mutations.resolvers.go
 - [ ] T096 [US3] Implement reorderCategories mutation resolver in api/internal/graph/mutations.resolvers.go

@@ -97,6 +97,22 @@ type DeleteProductPayload struct {
 	DeletedProductID *string
 }
 
+// CreateCategoryInput represents the input for creating a category
+type CreateCategoryInput struct {
+	ClientMutationID *string
+	Name             string
+	Slug             string
+	ParentID         *string
+	DisplayOrder     *int
+	Body             *string
+}
+
+// CreateCategoryPayload represents the payload returned from createCategory
+type CreateCategoryPayload struct {
+	ClientMutationID *string
+	Category         *models.CategoryMutation
+}
+
 // CreateProduct creates a new product and commits it to git
 func (s *ProductMutationService) CreateProduct(ctx context.Context, input CreateProductInput) (*CreateProductPayload, error) {
 	// Set defaults
@@ -518,5 +534,95 @@ func (s *ProductMutationService) DeleteProduct(ctx context.Context, input Delete
 	return &DeleteProductPayload{
 		ClientMutationID: input.ClientMutationID,
 		DeletedProductID: &input.ID,
+	}, nil
+}
+
+// CreateCategory creates a new category and commits it to git
+func (s *ProductMutationService) CreateCategory(ctx context.Context, input CreateCategoryInput) (*CreateCategoryPayload, error) {
+	// Set defaults
+	displayOrder := 0
+	if input.DisplayOrder != nil {
+		displayOrder = *input.DisplayOrder
+	}
+
+	body := ""
+	if input.Body != nil {
+		body = *input.Body
+	}
+
+	// Create category model
+	category, err := models.NewCategory(input.Name, input.Slug, input.ParentID, displayOrder)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create category: %w", err)
+	}
+
+	category.Body = body
+
+	// Validate category
+	if err := category.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Ensure repository exists
+	if err := ensureRepoExists(s.repoPath); err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Generate markdown content
+	frontMatter := gitclient.CategoryFrontMatter{
+		ID:           category.ID,
+		Name:         category.Name,
+		Slug:         category.Slug,
+		ParentID:     category.ParentID,
+		DisplayOrder: category.DisplayOrder,
+		CreatedAt:    category.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    category.UpdatedAt.Format(time.RFC3339),
+	}
+
+	// Add description if body is provided
+	var description *string
+	if body != "" {
+		description = &body
+		frontMatter.Description = description
+	}
+
+	markdown, err := gitclient.GenerateCategoryMarkdown(frontMatter, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate markdown: %w", err)
+	}
+
+	// Determine file path
+	filePath := gitclient.GetCategoryFilePath(category.Slug)
+
+	// Commit the file
+	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize git: %w", err)
+	}
+
+	commitMsg := gitclient.GenerateCommitMessage("create", "category", category.Slug, category.Name)
+	commitHash, err := commitBuilder.CommitChange(filePath, markdown, commitMsg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
+	}
+
+	// Push to remote (if configured)
+	if s.remoteURL != "" {
+		pushClient, err := gitclient.NewPushClient(s.repoPath, "origin", s.remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize push client: %w", err)
+		}
+
+		if err := pushClient.PushBranch(); err != nil {
+			return nil, fmt.Errorf("failed to push to remote: %w", err)
+		}
+	}
+
+	// Log success
+	fmt.Printf("Created category %s (commit: %s)\n", category.Slug, commitHash[:8])
+
+	return &CreateCategoryPayload{
+		ClientMutationID: input.ClientMutationID,
+		Category:         category,
 	}, nil
 }

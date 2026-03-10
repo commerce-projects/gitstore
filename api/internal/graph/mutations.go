@@ -164,6 +164,21 @@ type ReorderCategoriesPayload struct {
 	Categories       []*models.CategoryMutation
 }
 
+// CreateCollectionInput represents the input for creating a collection
+type CreateCollectionInput struct {
+	ClientMutationID *string
+	Name             string
+	Slug             string
+	DisplayOrder     *int
+	Body             *string
+}
+
+// CreateCollectionPayload represents the payload returned from createCollection
+type CreateCollectionPayload struct {
+	ClientMutationID *string
+	Collection       *models.CollectionMutation
+}
+
 // CreateProduct creates a new product and commits it to git
 func (s *ProductMutationService) CreateProduct(ctx context.Context, input CreateProductInput) (*CreateProductPayload, error) {
 	// Set defaults
@@ -1001,5 +1016,94 @@ func (s *ProductMutationService) ReorderCategories(ctx context.Context, input Re
 	return &ReorderCategoriesPayload{
 		ClientMutationID: input.ClientMutationID,
 		Categories:       updatedCategories,
+	}, nil
+}
+
+// CreateCollection creates a new collection and commits it to git
+func (s *ProductMutationService) CreateCollection(ctx context.Context, input CreateCollectionInput) (*CreateCollectionPayload, error) {
+	// Set defaults
+	displayOrder := 0
+	if input.DisplayOrder != nil {
+		displayOrder = *input.DisplayOrder
+	}
+
+	body := ""
+	if input.Body != nil {
+		body = *input.Body
+	}
+
+	// Create collection model
+	collection, err := models.NewCollection(input.Name, input.Slug, displayOrder)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create collection: %w", err)
+	}
+
+	collection.Body = body
+
+	// Validate collection
+	if err := collection.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Ensure repository exists
+	if err := ensureRepoExists(s.repoPath); err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Generate markdown content
+	frontMatter := gitclient.CollectionFrontMatter{
+		ID:           collection.ID,
+		Name:         collection.Name,
+		Slug:         collection.Slug,
+		DisplayOrder: collection.DisplayOrder,
+		CreatedAt:    collection.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    collection.UpdatedAt.Format(time.RFC3339),
+	}
+
+	// Add description if body is provided
+	var description *string
+	if body != "" {
+		description = &body
+		frontMatter.Description = description
+	}
+
+	markdown, err := gitclient.GenerateCollectionMarkdown(frontMatter, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate markdown: %w", err)
+	}
+
+	// Determine file path
+	filePath := gitclient.GetCollectionFilePath(collection.Slug)
+
+	// Commit the file
+	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize git: %w", err)
+	}
+
+	commitMsg := gitclient.GenerateCommitMessage("create", "collection", collection.Slug, collection.Name)
+	commitHash, err := commitBuilder.CommitChange(filePath, markdown, commitMsg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
+	}
+
+	// Push to remote (if configured)
+	if s.remoteURL != "" {
+		pushClient, err := gitclient.NewPushClient(s.repoPath, "origin", s.remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize push client: %w", err)
+		}
+
+		if err := pushClient.PushBranch(); err != nil {
+			return nil, fmt.Errorf("failed to push to remote: %w", err)
+		}
+	}
+
+	// Log success
+	fmt.Printf("Created collection %s (commit: %s)\n", collection.Slug, commitHash[:8])
+
+	return &CreateCollectionPayload{
+		ClientMutationID: input.ClientMutationID,
+		Collection:       collection,
 	}, nil
 }

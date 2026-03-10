@@ -13,9 +13,10 @@ import (
 
 // ProductMutationService handles product mutation operations
 type ProductMutationService struct {
-	repoPath          string
-	remoteURL         string
-	readProductFromGit func(productID string) (*models.Product, string, error)
+	repoPath            string
+	remoteURL           string
+	readProductFromGit  func(productID string) (*models.Product, string, error)
+	readCategoryFromGit func(categoryID string) (*models.CategoryMutation, string, error)
 }
 
 // NewProductMutationService creates a new product mutation service
@@ -24,8 +25,9 @@ func NewProductMutationService(repoPath, remoteURL string) *ProductMutationServi
 		repoPath:  repoPath,
 		remoteURL: remoteURL,
 	}
-	// Set default implementation
+	// Set default implementations
 	s.readProductFromGit = s.defaultReadProductFromGit
+	s.readCategoryFromGit = s.defaultReadCategoryFromGit
 	return s
 }
 
@@ -111,6 +113,37 @@ type CreateCategoryInput struct {
 type CreateCategoryPayload struct {
 	ClientMutationID *string
 	Category         *models.CategoryMutation
+}
+
+// UpdateCategoryInput represents the input for updating a category
+type UpdateCategoryInput struct {
+	ClientMutationID *string
+	ID               string
+	Name             *string
+	Slug             *string
+	ParentID         *string
+	DisplayOrder     *int
+	Body             *string
+	Version          string // For optimistic locking
+}
+
+// UpdateCategoryPayload represents the payload returned from updateCategory
+type UpdateCategoryPayload struct {
+	ClientMutationID *string
+	Category         *models.CategoryMutation
+	Conflict         *OptimisticLockConflict
+}
+
+// DeleteCategoryInput represents the input for deleting a category
+type DeleteCategoryInput struct {
+	ClientMutationID *string
+	ID               string
+}
+
+// DeleteCategoryPayload represents the payload returned from deleteCategory
+type DeleteCategoryPayload struct {
+	ClientMutationID  *string
+	DeletedCategoryID *string
 }
 
 // CreateProduct creates a new product and commits it to git
@@ -624,5 +657,258 @@ func (s *ProductMutationService) CreateCategory(ctx context.Context, input Creat
 	return &CreateCategoryPayload{
 		ClientMutationID: input.ClientMutationID,
 		Category:         category,
+	}, nil
+}
+
+// defaultReadCategoryFromGit is the default implementation for reading categories
+func (s *ProductMutationService) defaultReadCategoryFromGit(categoryID string) (*models.CategoryMutation, string, error) {
+	// For now, we need to search for the category file
+	// In a real implementation, we'd have an index or cache
+	// For testing, we'll use a simplified approach
+
+	// This is a placeholder - in reality, you'd need to:
+	// 1. Have a cache/index of categories
+	// 2. Know the file path from the index
+	// 3. Read the file and parse it
+
+	return nil, "", fmt.Errorf("category not found: %s (cache/index not yet implemented)", categoryID)
+}
+
+// UpdateCategory updates an existing category with optimistic locking
+func (s *ProductMutationService) UpdateCategory(ctx context.Context, input UpdateCategoryInput) (*UpdateCategoryPayload, error) {
+	// Ensure repository exists
+	if err := ensureRepoExists(s.repoPath); err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Read existing category from git
+	existingCategory, existingContent, err := s.readCategoryFromGit(input.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read category: %w", err)
+	}
+
+	// Check optimistic lock version
+	versionChecker := NewVersionChecker()
+	if err := versionChecker.CheckVersion(input.Version, existingContent, "category", input.ID); err != nil {
+		// Version mismatch - return conflict information
+		if vme, ok := err.(*VersionMismatchError); ok {
+			// Generate diff
+			diffGen := NewDiffGenerator()
+
+			// Create updated category to show what user wanted
+			updatedCategory := s.applyCategoryUpdates(existingCategory, input)
+			updatedContent := s.generateCategoryContent(updatedCategory)
+
+			diffResult := diffGen.GenerateDiff(existingContent, updatedContent)
+
+			return &UpdateCategoryPayload{
+				ClientMutationID: input.ClientMutationID,
+				Category:         nil, // Not updated due to conflict
+				Conflict: &OptimisticLockConflict{
+					Detected:         true,
+					CurrentVersion:   vme.ActualVersion,
+					AttemptedVersion: vme.ExpectedVersion,
+					CurrentProduct:   nil,
+					Diff:             diffResult.FormatDiffForDisplay(),
+				},
+			}, nil
+		}
+		return nil, err
+	}
+
+	// Apply updates to category
+	updatedCategory := s.applyCategoryUpdates(existingCategory, input)
+
+	// Update timestamp
+	updatedCategory.UpdatedAt = time.Now().UTC()
+
+	// Validate updated category
+	if err := updatedCategory.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Generate markdown content
+	frontMatter := gitclient.CategoryFrontMatter{
+		ID:           updatedCategory.ID,
+		Name:         updatedCategory.Name,
+		Slug:         updatedCategory.Slug,
+		ParentID:     updatedCategory.ParentID,
+		DisplayOrder: updatedCategory.DisplayOrder,
+		CreatedAt:    updatedCategory.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    updatedCategory.UpdatedAt.Format(time.RFC3339),
+	}
+
+	// Add description if body is provided
+	if updatedCategory.Body != "" {
+		description := updatedCategory.Body
+		frontMatter.Description = &description
+	}
+
+	markdown, err := gitclient.GenerateCategoryMarkdown(frontMatter, updatedCategory.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate markdown: %w", err)
+	}
+
+	// Determine file path (may have changed if slug changed)
+	filePath := gitclient.GetCategoryFilePath(updatedCategory.Slug)
+
+	// Check if file path changed (slug changed)
+	oldFilePath := gitclient.GetCategoryFilePath(existingCategory.Slug)
+
+	// Commit the changes
+	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize git: %w", err)
+	}
+
+	var commitHash string
+	if oldFilePath != filePath {
+		// File moved - delete old and write new
+		changes := map[string]string{
+			filePath: markdown,
+		}
+
+		// Delete old file
+		if err := commitBuilder.DeleteFile(oldFilePath); err != nil {
+			return nil, fmt.Errorf("failed to delete old file: %w", err)
+		}
+
+		commitMsg := gitclient.GenerateCommitMessage("update", "category", updatedCategory.Slug,
+			fmt.Sprintf("%s (moved from %s)", updatedCategory.Name, existingCategory.Slug))
+		commitHash, err = commitBuilder.CommitMultiple(changes, commitMsg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to commit: %w", err)
+		}
+	} else {
+		// Simple update
+		commitMsg := gitclient.GenerateCommitMessage("update", "category", updatedCategory.Slug, updatedCategory.Name)
+		commitHash, err = commitBuilder.CommitChange(filePath, markdown, commitMsg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to commit: %w", err)
+		}
+	}
+
+	// Push to remote (if configured)
+	if s.remoteURL != "" {
+		pushClient, err := gitclient.NewPushClient(s.repoPath, "origin", s.remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize push client: %w", err)
+		}
+
+		if err := pushClient.PushBranch(); err != nil {
+			return nil, fmt.Errorf("failed to push to remote: %w", err)
+		}
+	}
+
+	// Log success
+	fmt.Printf("Updated category %s (commit: %s)\n", updatedCategory.Slug, commitHash[:8])
+
+	return &UpdateCategoryPayload{
+		ClientMutationID: input.ClientMutationID,
+		Category:         updatedCategory,
+		Conflict:         nil,
+	}, nil
+}
+
+// applyCategoryUpdates applies the update input to an existing category
+func (s *ProductMutationService) applyCategoryUpdates(existing *models.CategoryMutation, input UpdateCategoryInput) *models.CategoryMutation {
+	updated := &models.CategoryMutation{
+		ID:           existing.ID,
+		Name:         existing.Name,
+		Slug:         existing.Slug,
+		ParentID:     existing.ParentID,
+		DisplayOrder: existing.DisplayOrder,
+		Body:         existing.Body,
+		CreatedAt:    existing.CreatedAt,
+		UpdatedAt:    existing.UpdatedAt,
+	}
+
+	// Apply updates only for provided fields
+	if input.Name != nil {
+		updated.Name = *input.Name
+	}
+	if input.Slug != nil {
+		updated.Slug = *input.Slug
+	}
+	if input.ParentID != nil {
+		updated.ParentID = input.ParentID
+	}
+	if input.DisplayOrder != nil {
+		updated.DisplayOrder = *input.DisplayOrder
+	}
+	if input.Body != nil {
+		updated.Body = *input.Body
+	}
+
+	return updated
+}
+
+// generateCategoryContent generates the full markdown content for a category
+func (s *ProductMutationService) generateCategoryContent(category *models.CategoryMutation) string {
+	frontMatter := gitclient.CategoryFrontMatter{
+		ID:           category.ID,
+		Name:         category.Name,
+		Slug:         category.Slug,
+		ParentID:     category.ParentID,
+		DisplayOrder: category.DisplayOrder,
+		CreatedAt:    category.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    category.UpdatedAt.Format(time.RFC3339),
+	}
+
+	if category.Body != "" {
+		description := category.Body
+		frontMatter.Description = &description
+	}
+
+	markdown, _ := gitclient.GenerateCategoryMarkdown(frontMatter, category.Body)
+	return markdown
+}
+
+// DeleteCategory deletes an existing category
+func (s *ProductMutationService) DeleteCategory(ctx context.Context, input DeleteCategoryInput) (*DeleteCategoryPayload, error) {
+	// Ensure repository exists
+	if err := ensureRepoExists(s.repoPath); err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Read existing category from git
+	existingCategory, _, err := s.readCategoryFromGit(input.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read category: %w", err)
+	}
+
+	// Determine file path
+	filePath := gitclient.GetCategoryFilePath(existingCategory.Slug)
+
+	// Commit the deletion
+	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize git: %w", err)
+	}
+
+	commitMsg := gitclient.GenerateCommitMessage("delete", "category", existingCategory.Slug, existingCategory.Name)
+	commitHash, err := commitBuilder.CommitDelete(filePath, commitMsg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit deletion: %w", err)
+	}
+
+	// Push to remote (if configured)
+	if s.remoteURL != "" {
+		pushClient, err := gitclient.NewPushClient(s.repoPath, "origin", s.remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize push client: %w", err)
+		}
+
+		if err := pushClient.PushBranch(); err != nil {
+			return nil, fmt.Errorf("failed to push to remote: %w", err)
+		}
+	}
+
+	// Log success
+	fmt.Printf("Deleted category %s (commit: %s)\n", existingCategory.Slug, commitHash[:8])
+
+	return &DeleteCategoryPayload{
+		ClientMutationID:  input.ClientMutationID,
+		DeletedCategoryID: &input.ID,
 	}, nil
 }

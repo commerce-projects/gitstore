@@ -2,10 +2,13 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/commerce-projects/gitstore/api/internal/models"
 	"github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -310,5 +313,332 @@ func TestCreateCategory(t *testing.T) {
 		assert.Nil(t, rootPayload.Category.ParentID)
 		assert.NotNil(t, childPayload.Category.ParentID)
 		assert.Equal(t, rootID, *childPayload.Category.ParentID)
+	})
+}
+
+func TestUpdateCategory(t *testing.T) {
+	t.Run("should update category fields", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial category
+		createInput := CreateCategoryInput{
+			Name: "Electronics",
+			Slug: "electronics",
+		}
+		createPayload, err := service.CreateCategory(ctx, createInput)
+		require.NoError(t, err)
+		categoryID := createPayload.Category.ID
+
+		// Mock readCategoryFromGit to return the created category
+		service.readCategoryFromGit = func(id string) (*models.CategoryMutation, string, error) {
+			if id == categoryID {
+				content := service.generateCategoryContent(createPayload.Category)
+				return createPayload.Category, content, nil
+			}
+			return nil, "", fmt.Errorf("category not found")
+		}
+
+		// Update the category
+		newName := "Consumer Electronics"
+		newSlug := "consumer-electronics"
+		newDisplayOrder := 10
+		newBody := "Latest consumer electronics and gadgets."
+
+		versionChecker := NewVersionChecker()
+		originalContent := service.generateCategoryContent(createPayload.Category)
+		version := versionChecker.CalculateVersion(originalContent)
+
+		updateInput := UpdateCategoryInput{
+			ID:           categoryID,
+			Name:         &newName,
+			Slug:         &newSlug,
+			DisplayOrder: &newDisplayOrder,
+			Body:         &newBody,
+			Version:      version,
+		}
+
+		payload, err := service.UpdateCategory(ctx, updateInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+		require.Nil(t, payload.Conflict)
+
+		category := payload.Category
+		assert.Equal(t, "Consumer Electronics", category.Name)
+		assert.Equal(t, "consumer-electronics", category.Slug)
+		assert.Equal(t, 10, category.DisplayOrder)
+		assert.Contains(t, category.Body, "Latest consumer electronics")
+	})
+
+	t.Run("should detect optimistic lock conflict", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial category
+		createInput := CreateCategoryInput{
+			Name: "Books",
+			Slug: "books",
+		}
+		createPayload, err := service.CreateCategory(ctx, createInput)
+		require.NoError(t, err)
+		categoryID := createPayload.Category.ID
+
+		// Simulate concurrent modification
+		modifiedCategory := *createPayload.Category
+		modifiedCategory.Name = "Literature"
+		modifiedCategory.UpdatedAt = time.Now().UTC()
+
+		service.readCategoryFromGit = func(id string) (*models.CategoryMutation, string, error) {
+			if id == categoryID {
+				content := service.generateCategoryContent(&modifiedCategory)
+				return &modifiedCategory, content, nil
+			}
+			return nil, "", fmt.Errorf("category not found")
+		}
+
+		// Try to update with old version
+		versionChecker := NewVersionChecker()
+		oldContent := service.generateCategoryContent(createPayload.Category)
+		oldVersion := versionChecker.CalculateVersion(oldContent)
+
+		newName := "Reading Materials"
+		updateInput := UpdateCategoryInput{
+			ID:      categoryID,
+			Name:    &newName,
+			Version: oldVersion,
+		}
+
+		payload, err := service.UpdateCategory(ctx, updateInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+		require.NotNil(t, payload.Conflict)
+		require.Nil(t, payload.Category)
+
+		assert.True(t, payload.Conflict.Detected)
+		assert.NotEmpty(t, payload.Conflict.Diff)
+	})
+
+	t.Run("should handle slug change with file move", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial category
+		createInput := CreateCategoryInput{
+			Name: "Home & Garden",
+			Slug: "home-garden",
+		}
+		createPayload, err := service.CreateCategory(ctx, createInput)
+		require.NoError(t, err)
+		categoryID := createPayload.Category.ID
+
+		service.readCategoryFromGit = func(id string) (*models.CategoryMutation, string, error) {
+			if id == categoryID {
+				content := service.generateCategoryContent(createPayload.Category)
+				return createPayload.Category, content, nil
+			}
+			return nil, "", fmt.Errorf("category not found")
+		}
+
+		// Change the slug
+		newSlug := "home-and-garden"
+		versionChecker := NewVersionChecker()
+		originalContent := service.generateCategoryContent(createPayload.Category)
+		version := versionChecker.CalculateVersion(originalContent)
+
+		updateInput := UpdateCategoryInput{
+			ID:      categoryID,
+			Slug:    &newSlug,
+			Version: version,
+		}
+
+		payload, err := service.UpdateCategory(ctx, updateInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+
+		// Verify old file doesn't exist
+		oldFilePath := filepath.Join(repoPath, "categories/home-garden.md")
+		_, err = os.Stat(oldFilePath)
+		assert.True(t, os.IsNotExist(err))
+
+		// Verify new file exists
+		newFilePath := filepath.Join(repoPath, "categories/home-and-garden.md")
+		_, err = os.Stat(newFilePath)
+		require.NoError(t, err)
+	})
+
+	t.Run("should validate updated fields", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial category
+		createInput := CreateCategoryInput{
+			Name: "Sports",
+			Slug: "sports",
+		}
+		createPayload, err := service.CreateCategory(ctx, createInput)
+		require.NoError(t, err)
+		categoryID := createPayload.Category.ID
+
+		service.readCategoryFromGit = func(id string) (*models.CategoryMutation, string, error) {
+			if id == categoryID {
+				content := service.generateCategoryContent(createPayload.Category)
+				return createPayload.Category, content, nil
+			}
+			return nil, "", fmt.Errorf("category not found")
+		}
+
+		versionChecker := NewVersionChecker()
+		originalContent := service.generateCategoryContent(createPayload.Category)
+		version := versionChecker.CalculateVersion(originalContent)
+
+		// Try invalid slug
+		invalidSlug := "Sports & Outdoors"
+		updateInput := UpdateCategoryInput{
+			ID:      categoryID,
+			Slug:    &invalidSlug,
+			Version: version,
+		}
+
+		_, err = service.UpdateCategory(ctx, updateInput)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "lowercase alphanumeric")
+	})
+}
+
+func TestDeleteCategory(t *testing.T) {
+	t.Run("should delete category", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create category
+		createInput := CreateCategoryInput{
+			Name: "Toys",
+			Slug: "toys",
+		}
+		createPayload, err := service.CreateCategory(ctx, createInput)
+		require.NoError(t, err)
+		categoryID := createPayload.Category.ID
+
+		service.readCategoryFromGit = func(id string) (*models.CategoryMutation, string, error) {
+			if id == categoryID {
+				content := service.generateCategoryContent(createPayload.Category)
+				return createPayload.Category, content, nil
+			}
+			return nil, "", fmt.Errorf("category not found")
+		}
+
+		// Delete the category
+		deleteInput := DeleteCategoryInput{
+			ID: categoryID,
+		}
+
+		payload, err := service.DeleteCategory(ctx, deleteInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+		require.NotNil(t, payload.DeletedCategoryID)
+		assert.Equal(t, categoryID, *payload.DeletedCategoryID)
+
+		// Verify file was deleted
+		filePath := filepath.Join(repoPath, "categories/toys.md")
+		_, err = os.Stat(filePath)
+		assert.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("should commit deletion to git", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create category
+		createInput := CreateCategoryInput{
+			Name: "Furniture",
+			Slug: "furniture",
+		}
+		createPayload, err := service.CreateCategory(ctx, createInput)
+		require.NoError(t, err)
+		categoryID := createPayload.Category.ID
+
+		service.readCategoryFromGit = func(id string) (*models.CategoryMutation, string, error) {
+			if id == categoryID {
+				content := service.generateCategoryContent(createPayload.Category)
+				return createPayload.Category, content, nil
+			}
+			return nil, "", fmt.Errorf("category not found")
+		}
+
+		// Delete
+		deleteInput := DeleteCategoryInput{
+			ID: categoryID,
+		}
+
+		_, err = service.DeleteCategory(ctx, deleteInput)
+		require.NoError(t, err)
+
+		// Verify git commit
+		repo, err := git.PlainOpen(repoPath)
+		require.NoError(t, err)
+
+		ref, err := repo.Head()
+		require.NoError(t, err)
+
+		commit, err := repo.CommitObject(ref.Hash())
+		require.NoError(t, err)
+
+		assert.Contains(t, commit.Message, "delete")
+		assert.Contains(t, commit.Message, "category")
+		assert.Contains(t, commit.Message, "furniture")
+	})
+
+	t.Run("should return clientMutationId", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create category
+		createInput := CreateCategoryInput{
+			Name: "Automotive",
+			Slug: "automotive",
+		}
+		createPayload, err := service.CreateCategory(ctx, createInput)
+		require.NoError(t, err)
+		categoryID := createPayload.Category.ID
+
+		service.readCategoryFromGit = func(id string) (*models.CategoryMutation, string, error) {
+			if id == categoryID {
+				content := service.generateCategoryContent(createPayload.Category)
+				return createPayload.Category, content, nil
+			}
+			return nil, "", fmt.Errorf("category not found")
+		}
+
+		clientID := "delete-category-123"
+		deleteInput := DeleteCategoryInput{
+			ClientMutationID: &clientID,
+			ID:               categoryID,
+		}
+
+		payload, err := service.DeleteCategory(ctx, deleteInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload.ClientMutationID)
+		assert.Equal(t, "delete-category-123", *payload.ClientMutationID)
 	})
 }

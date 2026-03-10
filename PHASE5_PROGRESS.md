@@ -3,7 +3,7 @@
 **Feature**: User Story 3 - Admin UI with Mutations
 **Branch**: `002-admin-ui-mutations`
 **Started**: 2026-03-10
-**Status**: 🟡 In Progress (27.7% complete)
+**Status**: 🟡 In Progress (31.9% complete)
 
 ---
 
@@ -15,7 +15,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 
 ---
 
-## Completed Tasks (13/47)
+## Completed Tasks (15/47)
 
 ### Tests (Test-First Development ✅)
 - ✅ **T079**: Contract test for `createProduct` mutation (3 scenarios, skipped)
@@ -99,6 +99,21 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
   - Category model with slug validation
   - **Tests**: 9/9 passing ✅
 
+- ✅ **T094**: updateCategory mutation resolver (`api/internal/graph/mutations.go`)
+  - Update any category field with partial updates
+  - Version-based optimistic locking (SHA-256)
+  - Detect concurrent modifications
+  - Generate conflict diffs for resolution
+  - Handle slug changes (file moves)
+  - **Tests**: 4/4 passing ✅
+
+- ✅ **T095**: deleteCategory mutation resolver (`api/internal/graph/mutations.go`)
+  - Delete categories by ID
+  - Remove markdown files from git
+  - Clean git commits with descriptive messages
+  - Works across all category structures
+  - **Tests**: 3/3 passing ✅
+
 ---
 
 ## Next Steps (Remaining Tasks)
@@ -116,8 +131,8 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 - [X] T091: updateProduct mutation resolver
 - [X] T092: deleteProduct mutation resolver
 - [X] T093: createCategory mutation resolver
-- [ ] T094: updateCategory mutation resolver
-- [ ] T095: deleteCategory mutation resolver
+- [X] T094: updateCategory mutation resolver
+- [X] T095: deleteCategory mutation resolver
 - [ ] T096: reorderCategories mutation resolver
 - [ ] T097-T099: Collection mutation resolvers (create, update, delete)
 - [ ] T100: reorderCollections mutation resolver
@@ -166,7 +181,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 ✓ TestGenerateCommitMessage (3/3 passing)
 ```
 
-**Total**: 175 test cases (162 passing, 13 skipped)
+**Total**: 191 test cases (178 passing, 13 skipped)
 
 ---
 
@@ -232,11 +247,11 @@ Storefront Reload
 - `api/internal/models/product.go` (175 lines)
 - `api/internal/models/product_test.go` (257 lines)
 - `api/internal/models/category_mutations.go` (152 lines)
-- `api/internal/graph/mutations.go` (629 lines)
+- `api/internal/graph/mutations.go` (833 lines)
 - `api/internal/graph/mutations_test.go` (338 lines)
-- `api/internal/graph/category_mutations_test.go` (315 lines)
+- `api/internal/graph/category_mutations_test.go` (523 lines)
 
-**Total**: 4,721 lines of code + tests
+**Total**: 5,137 lines of code + tests
 
 ---
 
@@ -262,7 +277,8 @@ Storefront Reload
 6. **589461c**: feat: implement createProduct mutation resolver (T090)
 7. **471aaa2**: feat: implement updateProduct mutation with optimistic locking (T091)
 8. **97c130a**: feat: implement deleteProduct mutation resolver (T092)
-9. **[pending]**: feat: implement createCategory mutation resolver (T093)
+9. **c4c6ccd**: feat: implement createCategory mutation resolver (T093)
+10. **[pending]**: feat: implement updateCategory and deleteCategory mutations (T094-T095)
 
 ---
 
@@ -315,17 +331,17 @@ golangci-lint run ./...
 
 ## Progress Metrics
 
-- **Overall**: 13/47 tasks (27.7%)
+- **Overall**: 15/47 tasks (31.9%)
 - **Git Client**: 4/4 tasks (100%) ✅
 - **Mutation Infrastructure**: 2/2 tasks (100%) ✅
 - **Product Mutations**: 3/3 tasks (100%) ✅
-- **Category Mutations**: 1/4 tasks (25%)
+- **Category Mutations**: 3/4 tasks (75%)
 - **Remaining Mutations**: 0/5 tasks (0%)
 - **Auth**: 0/2 tasks (0%)
 - **Admin UI**: 0/23 tasks (0%)
-- **Tests**: 37 passing, 13 skipped (correct)
+- **Tests**: 53 passing, 13 skipped (correct)
 
-**Estimated Remaining**: ~34 tasks (~72% remaining)
+**Estimated Remaining**: ~32 tasks (~68% remaining)
 
 ---
 
@@ -334,9 +350,9 @@ golangci-lint run ./...
 - ✅ All foundational git operations complete (write, commit, push, tag)
 - ✅ All mutation infrastructure complete (optimistic locking, diff generation)
 - ✅ Product CRUD mutations complete (create, update, delete)
-- ✅ createCategory mutation complete with full validation
-- Git client + mutation infrastructure + product + category mutations: 162 passing tests
-- Ready for updateCategory and deleteCategory (T094-T095)
+- ✅ Category CRUD mutations complete (create, update, delete)
+- Git client + mutation infrastructure + product + category mutations: 178 passing tests
+- Ready for reorderCategories and collection mutations (T096-T100)
 - Admin UI can be built incrementally once mutations work
 - E2E tests (T082-T083) deferred until UI is functional
 
@@ -344,4 +360,4 @@ golangci-lint run ./...
 
 **Last Updated**: 2026-03-10
 **Branch**: https://github.com/commerce-projects/gitstore/tree/002-admin-ui-mutations
-**Status**: createCategory complete! Ready for updateCategory and deleteCategory (T094-T095)
+**Status**: Category CRUD complete! Ready for reorderCategories and collection mutations (T096-T100)

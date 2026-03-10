@@ -594,3 +594,261 @@ func TestDeleteCollection(t *testing.T) {
 		assert.Equal(t, "delete-collection-123", *payload.ClientMutationID)
 	})
 }
+
+func TestReorderCollections(t *testing.T) {
+	t.Run("should reorder multiple collections", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create three collections
+		collections := []struct {
+			name string
+			slug string
+		}{
+			{"Summer Sale", "summer-sale"},
+			{"Winter Sale", "winter-sale"},
+			{"Spring Sale", "spring-sale"},
+		}
+
+		createdCollections := make([]*models.CollectionMutation, 0, len(collections))
+		for _, col := range collections {
+			createInput := CreateCollectionInput{
+				Name: col.name,
+				Slug: col.slug,
+			}
+			payload, err := service.CreateCollection(ctx, createInput)
+			require.NoError(t, err)
+			createdCollections = append(createdCollections, payload.Collection)
+		}
+
+		// Mock readCollectionFromGit
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			for _, col := range createdCollections {
+				if col.ID == id {
+					content := service.generateCollectionContent(col)
+					return col, content, nil
+				}
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Reorder: Winter=0, Spring=1, Summer=2
+		reorderInput := ReorderCollectionsInput{
+			Orders: []CollectionOrderInput{
+				{ID: createdCollections[1].ID, DisplayOrder: 0}, // Winter
+				{ID: createdCollections[2].ID, DisplayOrder: 1}, // Spring
+				{ID: createdCollections[0].ID, DisplayOrder: 2}, // Summer
+			},
+		}
+
+		payload, err := service.ReorderCollections(ctx, reorderInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+		require.Len(t, payload.Collections, 3)
+
+		// Verify display orders
+		assert.Equal(t, 0, payload.Collections[0].DisplayOrder)
+		assert.Equal(t, 1, payload.Collections[1].DisplayOrder)
+		assert.Equal(t, 2, payload.Collections[2].DisplayOrder)
+	})
+
+	t.Run("should update markdown files", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create two collections
+		col1Input := CreateCollectionInput{Name: "Bestsellers", Slug: "bestsellers"}
+		col1Payload, err := service.CreateCollection(ctx, col1Input)
+		require.NoError(t, err)
+
+		col2Input := CreateCollectionInput{Name: "New Arrivals", Slug: "new-arrivals"}
+		col2Payload, err := service.CreateCollection(ctx, col2Input)
+		require.NoError(t, err)
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == col1Payload.Collection.ID {
+				content := service.generateCollectionContent(col1Payload.Collection)
+				return col1Payload.Collection, content, nil
+			}
+			if id == col2Payload.Collection.ID {
+				content := service.generateCollectionContent(col2Payload.Collection)
+				return col2Payload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Reorder
+		reorderInput := ReorderCollectionsInput{
+			Orders: []CollectionOrderInput{
+				{ID: col1Payload.Collection.ID, DisplayOrder: 5},
+				{ID: col2Payload.Collection.ID, DisplayOrder: 10},
+			},
+		}
+
+		_, err = service.ReorderCollections(ctx, reorderInput)
+		require.NoError(t, err)
+
+		// Verify files were updated
+		col1Path := filepath.Join(repoPath, "collections/bestsellers.md")
+		col1Content, err := os.ReadFile(col1Path)
+		require.NoError(t, err)
+		assert.Contains(t, string(col1Content), "display_order: 5")
+
+		col2Path := filepath.Join(repoPath, "collections/new-arrivals.md")
+		col2Content, err := os.ReadFile(col2Path)
+		require.NoError(t, err)
+		assert.Contains(t, string(col2Content), "display_order: 10")
+	})
+
+	t.Run("should commit single transaction", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create collections
+		col1Input := CreateCollectionInput{Name: "Featured", Slug: "featured"}
+		col1Payload, err := service.CreateCollection(ctx, col1Input)
+		require.NoError(t, err)
+
+		col2Input := CreateCollectionInput{Name: "Trending", Slug: "trending"}
+		col2Payload, err := service.CreateCollection(ctx, col2Input)
+		require.NoError(t, err)
+
+		// Get initial commit count
+		repo, err := git.PlainOpen(repoPath)
+		require.NoError(t, err)
+
+		ref, err := repo.Head()
+		require.NoError(t, err)
+
+		initialCommit, err := repo.CommitObject(ref.Hash())
+		require.NoError(t, err)
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == col1Payload.Collection.ID {
+				content := service.generateCollectionContent(col1Payload.Collection)
+				return col1Payload.Collection, content, nil
+			}
+			if id == col2Payload.Collection.ID {
+				content := service.generateCollectionContent(col2Payload.Collection)
+				return col2Payload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Reorder
+		reorderInput := ReorderCollectionsInput{
+			Orders: []CollectionOrderInput{
+				{ID: col1Payload.Collection.ID, DisplayOrder: 1},
+				{ID: col2Payload.Collection.ID, DisplayOrder: 2},
+			},
+		}
+
+		_, err = service.ReorderCollections(ctx, reorderInput)
+		require.NoError(t, err)
+
+		// Verify only one new commit was created
+		ref, err = repo.Head()
+		require.NoError(t, err)
+
+		newCommit, err := repo.CommitObject(ref.Hash())
+		require.NoError(t, err)
+
+		assert.NotEqual(t, initialCommit.Hash, newCommit.Hash)
+		assert.Contains(t, newCommit.Message, "reorder")
+		assert.Contains(t, newCommit.Message, "collections")
+		assert.Contains(t, newCommit.Message, "2 collections")
+	})
+
+	t.Run("should validate display orders", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create collection
+		createInput := CreateCollectionInput{Name: "Clearance", Slug: "clearance"}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == createPayload.Collection.ID {
+				content := service.generateCollectionContent(createPayload.Collection)
+				return createPayload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Try invalid display order
+		reorderInput := ReorderCollectionsInput{
+			Orders: []CollectionOrderInput{
+				{ID: createPayload.Collection.ID, DisplayOrder: -1},
+			},
+		}
+
+		_, err = service.ReorderCollections(ctx, reorderInput)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "display order cannot be negative")
+	})
+
+	t.Run("should require at least one collection", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Try to reorder with no collections
+		reorderInput := ReorderCollectionsInput{
+			Orders: []CollectionOrderInput{},
+		}
+
+		_, err := service.ReorderCollections(ctx, reorderInput)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "at least one collection")
+	})
+
+	t.Run("should return clientMutationId", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create collection
+		createInput := CreateCollectionInput{Name: "Limited", Slug: "limited"}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == createPayload.Collection.ID {
+				content := service.generateCollectionContent(createPayload.Collection)
+				return createPayload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		clientID := "reorder-123"
+		// Change display order to create actual changes
+		reorderInput := ReorderCollectionsInput{
+			ClientMutationID: &clientID,
+			Orders: []CollectionOrderInput{
+				{ID: createPayload.Collection.ID, DisplayOrder: 5},
+			},
+		}
+
+		payload, err := service.ReorderCollections(ctx, reorderInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload.ClientMutationID)
+		assert.Equal(t, "reorder-123", *payload.ClientMutationID)
+	})
+}

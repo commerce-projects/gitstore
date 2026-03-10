@@ -211,6 +211,24 @@ type DeleteCollectionPayload struct {
 	DeletedCollectionID *string
 }
 
+// CollectionOrderInput represents a collection and its new display order
+type CollectionOrderInput struct {
+	ID           string
+	DisplayOrder int
+}
+
+// ReorderCollectionsInput represents the input for reordering collections
+type ReorderCollectionsInput struct {
+	ClientMutationID *string
+	Orders           []CollectionOrderInput
+}
+
+// ReorderCollectionsPayload represents the payload returned from reorderCollections
+type ReorderCollectionsPayload struct {
+	ClientMutationID *string
+	Collections      []*models.CollectionMutation
+}
+
 // CreateProduct creates a new product and commits it to git
 func (s *ProductMutationService) CreateProduct(ctx context.Context, input CreateProductInput) (*CreateProductPayload, error) {
 	// Set defaults
@@ -1384,5 +1402,78 @@ func (s *ProductMutationService) DeleteCollection(ctx context.Context, input Del
 	return &DeleteCollectionPayload{
 		ClientMutationID:   input.ClientMutationID,
 		DeletedCollectionID: &input.ID,
+	}, nil
+}
+
+// ReorderCollections updates the display order of multiple collections in a single transaction
+func (s *ProductMutationService) ReorderCollections(ctx context.Context, input ReorderCollectionsInput) (*ReorderCollectionsPayload, error) {
+	if len(input.Orders) == 0 {
+		return nil, fmt.Errorf("at least one collection order must be specified")
+	}
+
+	// Ensure repository exists
+	if err := ensureRepoExists(s.repoPath); err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Read all collections and update their display orders
+	var updatedCollections []*models.CollectionMutation
+	filesToUpdate := make(map[string]string)
+
+	for _, order := range input.Orders {
+		// Read existing collection
+		collection, _, err := s.readCollectionFromGit(order.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read collection %s: %w", order.ID, err)
+		}
+
+		// Validate display order
+		if err := models.ValidateDisplayOrder(order.DisplayOrder); err != nil {
+			return nil, fmt.Errorf("invalid display order for collection %s: %w", order.ID, err)
+		}
+
+		// Update display order and timestamp
+		collection.DisplayOrder = order.DisplayOrder
+		collection.UpdatedAt = time.Now().UTC()
+
+		// Generate markdown content
+		markdown := s.generateCollectionContent(collection)
+		filePath := gitclient.GetCollectionFilePath(collection.Slug)
+		filesToUpdate[filePath] = markdown
+
+		updatedCollections = append(updatedCollections, collection)
+	}
+
+	// Commit all changes in a single transaction
+	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize git: %w", err)
+	}
+
+	commitMsg := gitclient.GenerateCommitMessage("reorder", "collections", "",
+		fmt.Sprintf("%d collections", len(input.Orders)))
+	commitHash, err := commitBuilder.CommitMultiple(filesToUpdate, commitMsg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
+	}
+
+	// Push to remote (if configured)
+	if s.remoteURL != "" {
+		pushClient, err := gitclient.NewPushClient(s.repoPath, "origin", s.remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize push client: %w", err)
+		}
+
+		if err := pushClient.PushBranch(); err != nil {
+			return nil, fmt.Errorf("failed to push to remote: %w", err)
+		}
+	}
+
+	// Log success
+	fmt.Printf("Reordered %d collections (commit: %s)\n", len(input.Orders), commitHash[:8])
+
+	return &ReorderCollectionsPayload{
+		ClientMutationID: input.ClientMutationID,
+		Collections:      updatedCollections,
 	}, nil
 }

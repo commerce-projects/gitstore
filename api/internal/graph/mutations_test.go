@@ -2,8 +2,10 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -721,6 +723,228 @@ func TestApplyUpdates(t *testing.T) {
 		assert.Equal(t, "ORIGINAL-SKU", updated.SKU) // Unchanged
 		assert.Equal(t, 29.99, updated.Price) // Unchanged
 		assert.Equal(t, "cat_original", updated.CategoryID) // Unchanged
+	})
+}
+
+func TestDeleteProduct(t *testing.T) {
+	t.Run("should delete product", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create product first
+		createInput := CreateProductInput{
+			SKU:        "DELETE-TEST-001",
+			Title:      "Product to Delete",
+			Price:      29.99,
+			CategoryID: "cat_test",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+		productID := createPayload.Product.ID
+
+		// Verify file exists
+		filePath := filepath.Join(repoPath, "products/test/DELETE-TEST-001.md")
+		_, err = os.Stat(filePath)
+		require.NoError(t, err)
+
+		// Mock readProductFromGit
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return createPayload.Product, "", nil
+		}
+
+		// Delete the product
+		deleteInput := DeleteProductInput{
+			ID: productID,
+		}
+
+		deletePayload, err := service.DeleteProduct(ctx, deleteInput)
+		require.NoError(t, err)
+		require.NotNil(t, deletePayload)
+		require.NotNil(t, deletePayload.DeletedProductID)
+		assert.Equal(t, productID, *deletePayload.DeletedProductID)
+
+		// Verify file is deleted
+		_, err = os.Stat(filePath)
+		assert.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("should delete product with client mutation ID", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create product
+		createInput := CreateProductInput{
+			SKU:        "DELETE-WITH-ID-001",
+			Title:      "Product",
+			Price:      10.00,
+			CategoryID: "cat_test",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return createPayload.Product, "", nil
+		}
+
+		// Delete with client mutation ID
+		clientMutationID := "test-delete-123"
+		deleteInput := DeleteProductInput{
+			ClientMutationID: &clientMutationID,
+			ID:               createPayload.Product.ID,
+		}
+
+		deletePayload, err := service.DeleteProduct(ctx, deleteInput)
+		require.NoError(t, err)
+		require.NotNil(t, deletePayload.ClientMutationID)
+		assert.Equal(t, "test-delete-123", *deletePayload.ClientMutationID)
+	})
+
+	t.Run("should commit deletion to git", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create product
+		createInput := CreateProductInput{
+			SKU:        "DELETE-COMMIT-001",
+			Title:      "Product for Commit Test",
+			Price:      15.00,
+			CategoryID: "cat_test",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return createPayload.Product, "", nil
+		}
+
+		// Delete product
+		deleteInput := DeleteProductInput{
+			ID: createPayload.Product.ID,
+		}
+
+		_, err = service.DeleteProduct(ctx, deleteInput)
+		require.NoError(t, err)
+
+		// Verify git commit
+		repo, err := git.PlainOpen(repoPath)
+		require.NoError(t, err)
+
+		ref, err := repo.Head()
+		require.NoError(t, err)
+
+		commit, err := repo.CommitObject(ref.Hash())
+		require.NoError(t, err)
+
+		assert.Contains(t, commit.Message, "delete")
+		assert.Contains(t, commit.Message, "product")
+		assert.Contains(t, commit.Message, "DELETE-COMMIT-001")
+	})
+
+	t.Run("should fail for non-existent product", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Try to delete non-existent product
+		deleteInput := DeleteProductInput{
+			ID: "prod_nonexistent",
+		}
+
+		_, err := service.DeleteProduct(ctx, deleteInput)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read product")
+	})
+
+	t.Run("should delete product from different categories", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create products in different categories
+		categories := []string{"cat_electronics", "cat_books", "cat_clothing"}
+
+		for i, categoryID := range categories {
+			sku := fmt.Sprintf("DELETE-CAT-%d", i)
+			createInput := CreateProductInput{
+				SKU:        sku,
+				Title:      "Product",
+				Price:      10.00,
+				CategoryID: categoryID,
+			}
+
+			createPayload, err := service.CreateProduct(ctx, createInput)
+			require.NoError(t, err)
+
+			// Delete immediately
+			service.readProductFromGit = func(id string) (*models.Product, string, error) {
+				return createPayload.Product, "", nil
+			}
+
+			deleteInput := DeleteProductInput{
+				ID: createPayload.Product.ID,
+			}
+
+			_, err = service.DeleteProduct(ctx, deleteInput)
+			require.NoError(t, err)
+
+			// Verify file deleted
+			categorySlug := strings.TrimPrefix(categoryID, "cat_")
+			filePath := filepath.Join(repoPath, "products", categorySlug, sku+".md")
+			_, err = os.Stat(filePath)
+			assert.True(t, os.IsNotExist(err), "File should be deleted: %s", filePath)
+		}
+	})
+
+	t.Run("should handle deletion of product with special characters in SKU", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create product with hyphens and underscores
+		createInput := CreateProductInput{
+			SKU:        "SPECIAL-SKU_123",
+			Title:      "Special Product",
+			Price:      25.00,
+			CategoryID: "cat_test",
+		}
+
+		createPayload, err := service.CreateProduct(ctx, createInput)
+		require.NoError(t, err)
+
+		service.readProductFromGit = func(id string) (*models.Product, string, error) {
+			return createPayload.Product, "", nil
+		}
+
+		// Delete product
+		deleteInput := DeleteProductInput{
+			ID: createPayload.Product.ID,
+		}
+
+		_, err = service.DeleteProduct(ctx, deleteInput)
+		require.NoError(t, err)
+
+		// Verify file deleted
+		filePath := filepath.Join(repoPath, "products/test/SPECIAL-SKU_123.md")
+		_, err = os.Stat(filePath)
+		assert.True(t, os.IsNotExist(err))
 	})
 }
 

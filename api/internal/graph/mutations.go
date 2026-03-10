@@ -85,6 +85,18 @@ type OptimisticLockConflict struct {
 	Diff            string
 }
 
+// DeleteProductInput represents the input for deleting a product
+type DeleteProductInput struct {
+	ClientMutationID *string
+	ID               string
+}
+
+// DeleteProductPayload represents the payload returned from deleteProduct
+type DeleteProductPayload struct {
+	ClientMutationID *string
+	DeletedProductID *string
+}
+
 // CreateProduct creates a new product and commits it to git
 func (s *ProductMutationService) CreateProduct(ctx context.Context, input CreateProductInput) (*CreateProductPayload, error) {
 	// Set defaults
@@ -457,4 +469,54 @@ func (s *ProductMutationService) generateProductContent(product *models.Product)
 
 	markdown, _ := gitclient.GenerateProductMarkdown(frontMatter, product.Body)
 	return markdown
+}
+
+// DeleteProduct deletes an existing product
+func (s *ProductMutationService) DeleteProduct(ctx context.Context, input DeleteProductInput) (*DeleteProductPayload, error) {
+	// Ensure repository exists
+	if err := ensureRepoExists(s.repoPath); err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Read existing product from git
+	existingProduct, _, err := s.readProductFromGit(input.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read product: %w", err)
+	}
+
+	// Determine file path
+	categorySlug := models.GetCategorySlug(existingProduct.CategoryID)
+	filePath := gitclient.GetProductFilePath(existingProduct.SKU, categorySlug)
+
+	// Commit the deletion
+	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize git: %w", err)
+	}
+
+	commitMsg := gitclient.GenerateCommitMessage("delete", "product", existingProduct.SKU, existingProduct.Title)
+	commitHash, err := commitBuilder.CommitDelete(filePath, commitMsg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit deletion: %w", err)
+	}
+
+	// Push to remote (if configured)
+	if s.remoteURL != "" {
+		pushClient, err := gitclient.NewPushClient(s.repoPath, "origin", s.remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize push client: %w", err)
+		}
+
+		if err := pushClient.PushBranch(); err != nil {
+			return nil, fmt.Errorf("failed to push to remote: %w", err)
+		}
+	}
+
+	// Log success
+	fmt.Printf("Deleted product %s (commit: %s)\n", existingProduct.SKU, commitHash[:8])
+
+	return &DeleteProductPayload{
+		ClientMutationID: input.ClientMutationID,
+		DeletedProductID: &input.ID,
+	}, nil
 }

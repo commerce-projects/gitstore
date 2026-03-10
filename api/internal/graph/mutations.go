@@ -13,10 +13,11 @@ import (
 
 // ProductMutationService handles product mutation operations
 type ProductMutationService struct {
-	repoPath            string
-	remoteURL           string
-	readProductFromGit  func(productID string) (*models.Product, string, error)
-	readCategoryFromGit func(categoryID string) (*models.CategoryMutation, string, error)
+	repoPath              string
+	remoteURL             string
+	readProductFromGit    func(productID string) (*models.Product, string, error)
+	readCategoryFromGit   func(categoryID string) (*models.CategoryMutation, string, error)
+	readCollectionFromGit func(collectionID string) (*models.CollectionMutation, string, error)
 }
 
 // NewProductMutationService creates a new product mutation service
@@ -28,6 +29,7 @@ func NewProductMutationService(repoPath, remoteURL string) *ProductMutationServi
 	// Set default implementations
 	s.readProductFromGit = s.defaultReadProductFromGit
 	s.readCategoryFromGit = s.defaultReadCategoryFromGit
+	s.readCollectionFromGit = s.defaultReadCollectionFromGit
 	return s
 }
 
@@ -177,6 +179,36 @@ type CreateCollectionInput struct {
 type CreateCollectionPayload struct {
 	ClientMutationID *string
 	Collection       *models.CollectionMutation
+}
+
+// UpdateCollectionInput represents the input for updating a collection
+type UpdateCollectionInput struct {
+	ClientMutationID *string
+	ID               string
+	Name             *string
+	Slug             *string
+	DisplayOrder     *int
+	Body             *string
+	Version          string // For optimistic locking
+}
+
+// UpdateCollectionPayload represents the payload returned from updateCollection
+type UpdateCollectionPayload struct {
+	ClientMutationID *string
+	Collection       *models.CollectionMutation
+	Conflict         *OptimisticLockConflict
+}
+
+// DeleteCollectionInput represents the input for deleting a collection
+type DeleteCollectionInput struct {
+	ClientMutationID *string
+	ID               string
+}
+
+// DeleteCollectionPayload represents the payload returned from deleteCollection
+type DeleteCollectionPayload struct {
+	ClientMutationID   *string
+	DeletedCollectionID *string
 }
 
 // CreateProduct creates a new product and commits it to git
@@ -1105,5 +1137,252 @@ func (s *ProductMutationService) CreateCollection(ctx context.Context, input Cre
 	return &CreateCollectionPayload{
 		ClientMutationID: input.ClientMutationID,
 		Collection:       collection,
+	}, nil
+}
+
+// defaultReadCollectionFromGit is the default implementation for reading collections
+func (s *ProductMutationService) defaultReadCollectionFromGit(collectionID string) (*models.CollectionMutation, string, error) {
+	// For now, we need to search for the collection file
+	// In a real implementation, we'd have an index or cache
+	// For testing, we'll use a simplified approach
+
+	// This is a placeholder - in reality, you'd need to:
+	// 1. Have a cache/index of collections
+	// 2. Know the file path from the index
+	// 3. Read the file and parse it
+
+	return nil, "", fmt.Errorf("collection not found: %s (cache/index not yet implemented)", collectionID)
+}
+
+// UpdateCollection updates an existing collection with optimistic locking
+func (s *ProductMutationService) UpdateCollection(ctx context.Context, input UpdateCollectionInput) (*UpdateCollectionPayload, error) {
+	// Ensure repository exists
+	if err := ensureRepoExists(s.repoPath); err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Read existing collection from git
+	existingCollection, existingContent, err := s.readCollectionFromGit(input.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read collection: %w", err)
+	}
+
+	// Check optimistic lock version
+	versionChecker := NewVersionChecker()
+	if err := versionChecker.CheckVersion(input.Version, existingContent, "collection", input.ID); err != nil {
+		// Version mismatch - return conflict information
+		if vme, ok := err.(*VersionMismatchError); ok {
+			// Generate diff
+			diffGen := NewDiffGenerator()
+
+			// Create updated collection to show what user wanted
+			updatedCollection := s.applyCollectionUpdates(existingCollection, input)
+			updatedContent := s.generateCollectionContent(updatedCollection)
+
+			diffResult := diffGen.GenerateDiff(existingContent, updatedContent)
+
+			return &UpdateCollectionPayload{
+				ClientMutationID: input.ClientMutationID,
+				Collection:       nil, // Not updated due to conflict
+				Conflict: &OptimisticLockConflict{
+					Detected:         true,
+					CurrentVersion:   vme.ActualVersion,
+					AttemptedVersion: vme.ExpectedVersion,
+					CurrentProduct:   nil,
+					Diff:             diffResult.FormatDiffForDisplay(),
+				},
+			}, nil
+		}
+		return nil, err
+	}
+
+	// Apply updates to collection
+	updatedCollection := s.applyCollectionUpdates(existingCollection, input)
+
+	// Update timestamp
+	updatedCollection.UpdatedAt = time.Now().UTC()
+
+	// Validate updated collection
+	if err := updatedCollection.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Generate markdown content
+	frontMatter := gitclient.CollectionFrontMatter{
+		ID:           updatedCollection.ID,
+		Name:         updatedCollection.Name,
+		Slug:         updatedCollection.Slug,
+		DisplayOrder: updatedCollection.DisplayOrder,
+		CreatedAt:    updatedCollection.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    updatedCollection.UpdatedAt.Format(time.RFC3339),
+	}
+
+	// Add description if body is provided
+	if updatedCollection.Body != "" {
+		description := updatedCollection.Body
+		frontMatter.Description = &description
+	}
+
+	markdown, err := gitclient.GenerateCollectionMarkdown(frontMatter, updatedCollection.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate markdown: %w", err)
+	}
+
+	// Determine file path (may have changed if slug changed)
+	filePath := gitclient.GetCollectionFilePath(updatedCollection.Slug)
+
+	// Check if file path changed (slug changed)
+	oldFilePath := gitclient.GetCollectionFilePath(existingCollection.Slug)
+
+	// Commit the changes
+	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize git: %w", err)
+	}
+
+	var commitHash string
+	if oldFilePath != filePath {
+		// File moved - delete old and write new
+		changes := map[string]string{
+			filePath: markdown,
+		}
+
+		// Delete old file
+		if err := commitBuilder.DeleteFile(oldFilePath); err != nil {
+			return nil, fmt.Errorf("failed to delete old file: %w", err)
+		}
+
+		commitMsg := gitclient.GenerateCommitMessage("update", "collection", updatedCollection.Slug,
+			fmt.Sprintf("%s (moved from %s)", updatedCollection.Name, existingCollection.Slug))
+		commitHash, err = commitBuilder.CommitMultiple(changes, commitMsg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to commit: %w", err)
+		}
+	} else {
+		// Simple update
+		commitMsg := gitclient.GenerateCommitMessage("update", "collection", updatedCollection.Slug, updatedCollection.Name)
+		commitHash, err = commitBuilder.CommitChange(filePath, markdown, commitMsg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to commit: %w", err)
+		}
+	}
+
+	// Push to remote (if configured)
+	if s.remoteURL != "" {
+		pushClient, err := gitclient.NewPushClient(s.repoPath, "origin", s.remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize push client: %w", err)
+		}
+
+		if err := pushClient.PushBranch(); err != nil {
+			return nil, fmt.Errorf("failed to push to remote: %w", err)
+		}
+	}
+
+	// Log success
+	fmt.Printf("Updated collection %s (commit: %s)\n", updatedCollection.Slug, commitHash[:8])
+
+	return &UpdateCollectionPayload{
+		ClientMutationID: input.ClientMutationID,
+		Collection:       updatedCollection,
+		Conflict:         nil,
+	}, nil
+}
+
+// applyCollectionUpdates applies the update input to an existing collection
+func (s *ProductMutationService) applyCollectionUpdates(existing *models.CollectionMutation, input UpdateCollectionInput) *models.CollectionMutation {
+	updated := &models.CollectionMutation{
+		ID:           existing.ID,
+		Name:         existing.Name,
+		Slug:         existing.Slug,
+		DisplayOrder: existing.DisplayOrder,
+		Body:         existing.Body,
+		CreatedAt:    existing.CreatedAt,
+		UpdatedAt:    existing.UpdatedAt,
+	}
+
+	// Apply updates only for provided fields
+	if input.Name != nil {
+		updated.Name = *input.Name
+	}
+	if input.Slug != nil {
+		updated.Slug = *input.Slug
+	}
+	if input.DisplayOrder != nil {
+		updated.DisplayOrder = *input.DisplayOrder
+	}
+	if input.Body != nil {
+		updated.Body = *input.Body
+	}
+
+	return updated
+}
+
+// generateCollectionContent generates the full markdown content for a collection
+func (s *ProductMutationService) generateCollectionContent(collection *models.CollectionMutation) string {
+	frontMatter := gitclient.CollectionFrontMatter{
+		ID:           collection.ID,
+		Name:         collection.Name,
+		Slug:         collection.Slug,
+		DisplayOrder: collection.DisplayOrder,
+		CreatedAt:    collection.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    collection.UpdatedAt.Format(time.RFC3339),
+	}
+
+	if collection.Body != "" {
+		description := collection.Body
+		frontMatter.Description = &description
+	}
+
+	markdown, _ := gitclient.GenerateCollectionMarkdown(frontMatter, collection.Body)
+	return markdown
+}
+
+// DeleteCollection deletes an existing collection
+func (s *ProductMutationService) DeleteCollection(ctx context.Context, input DeleteCollectionInput) (*DeleteCollectionPayload, error) {
+	// Ensure repository exists
+	if err := ensureRepoExists(s.repoPath); err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Read existing collection from git
+	existingCollection, _, err := s.readCollectionFromGit(input.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read collection: %w", err)
+	}
+
+	// Determine file path
+	filePath := gitclient.GetCollectionFilePath(existingCollection.Slug)
+
+	// Commit the deletion
+	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize git: %w", err)
+	}
+
+	commitMsg := gitclient.GenerateCommitMessage("delete", "collection", existingCollection.Slug, existingCollection.Name)
+	commitHash, err := commitBuilder.CommitDelete(filePath, commitMsg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit deletion: %w", err)
+	}
+
+	// Push to remote (if configured)
+	if s.remoteURL != "" {
+		pushClient, err := gitclient.NewPushClient(s.repoPath, "origin", s.remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize push client: %w", err)
+		}
+
+		if err := pushClient.PushBranch(); err != nil {
+			return nil, fmt.Errorf("failed to push to remote: %w", err)
+		}
+	}
+
+	// Log success
+	fmt.Printf("Deleted collection %s (commit: %s)\n", existingCollection.Slug, commitHash[:8])
+
+	return &DeleteCollectionPayload{
+		ClientMutationID:   input.ClientMutationID,
+		DeletedCollectionID: &input.ID,
 	}, nil
 }

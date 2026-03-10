@@ -2,10 +2,13 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/commerce-projects/gitstore/api/internal/models"
 	"github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -262,5 +265,332 @@ func TestCreateCollection(t *testing.T) {
 		collection := payload.Collection
 		assert.Equal(t, 0, collection.DisplayOrder)
 		assert.Empty(t, collection.Body)
+	})
+}
+
+func TestUpdateCollection(t *testing.T) {
+	t.Run("should update collection fields", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial collection
+		createInput := CreateCollectionInput{
+			Name: "Winter Sale",
+			Slug: "winter-sale",
+		}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+		collectionID := createPayload.Collection.ID
+
+		// Mock readCollectionFromGit to return the created collection
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == collectionID {
+				content := service.generateCollectionContent(createPayload.Collection)
+				return createPayload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Update the collection
+		newName := "Winter Sale 2026"
+		newSlug := "winter-sale-2026"
+		newDisplayOrder := 10
+		newBody := "Best winter deals on all products."
+
+		versionChecker := NewVersionChecker()
+		originalContent := service.generateCollectionContent(createPayload.Collection)
+		version := versionChecker.CalculateVersion(originalContent)
+
+		updateInput := UpdateCollectionInput{
+			ID:           collectionID,
+			Name:         &newName,
+			Slug:         &newSlug,
+			DisplayOrder: &newDisplayOrder,
+			Body:         &newBody,
+			Version:      version,
+		}
+
+		payload, err := service.UpdateCollection(ctx, updateInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+		require.Nil(t, payload.Conflict)
+
+		collection := payload.Collection
+		assert.Equal(t, "Winter Sale 2026", collection.Name)
+		assert.Equal(t, "winter-sale-2026", collection.Slug)
+		assert.Equal(t, 10, collection.DisplayOrder)
+		assert.Contains(t, collection.Body, "Best winter deals")
+	})
+
+	t.Run("should detect optimistic lock conflict", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial collection
+		createInput := CreateCollectionInput{
+			Name: "Flash Sale",
+			Slug: "flash-sale",
+		}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+		collectionID := createPayload.Collection.ID
+
+		// Simulate concurrent modification
+		modifiedCollection := *createPayload.Collection
+		modifiedCollection.Name = "Lightning Sale"
+		modifiedCollection.UpdatedAt = time.Now().UTC()
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == collectionID {
+				content := service.generateCollectionContent(&modifiedCollection)
+				return &modifiedCollection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Try to update with old version
+		versionChecker := NewVersionChecker()
+		oldContent := service.generateCollectionContent(createPayload.Collection)
+		oldVersion := versionChecker.CalculateVersion(oldContent)
+
+		newName := "Quick Sale"
+		updateInput := UpdateCollectionInput{
+			ID:      collectionID,
+			Name:    &newName,
+			Version: oldVersion,
+		}
+
+		payload, err := service.UpdateCollection(ctx, updateInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+		require.NotNil(t, payload.Conflict)
+		require.Nil(t, payload.Collection)
+
+		assert.True(t, payload.Conflict.Detected)
+		assert.NotEmpty(t, payload.Conflict.Diff)
+	})
+
+	t.Run("should handle slug change with file move", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial collection
+		createInput := CreateCollectionInput{
+			Name: "Black Friday",
+			Slug: "black-friday",
+		}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+		collectionID := createPayload.Collection.ID
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == collectionID {
+				content := service.generateCollectionContent(createPayload.Collection)
+				return createPayload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Change the slug
+		newSlug := "black-friday-2026"
+		versionChecker := NewVersionChecker()
+		originalContent := service.generateCollectionContent(createPayload.Collection)
+		version := versionChecker.CalculateVersion(originalContent)
+
+		updateInput := UpdateCollectionInput{
+			ID:      collectionID,
+			Slug:    &newSlug,
+			Version: version,
+		}
+
+		payload, err := service.UpdateCollection(ctx, updateInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+
+		// Verify old file doesn't exist
+		oldFilePath := filepath.Join(repoPath, "collections/black-friday.md")
+		_, err = os.Stat(oldFilePath)
+		assert.True(t, os.IsNotExist(err))
+
+		// Verify new file exists
+		newFilePath := filepath.Join(repoPath, "collections/black-friday-2026.md")
+		_, err = os.Stat(newFilePath)
+		require.NoError(t, err)
+	})
+
+	t.Run("should validate updated fields", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create initial collection
+		createInput := CreateCollectionInput{
+			Name: "Clearance",
+			Slug: "clearance",
+		}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+		collectionID := createPayload.Collection.ID
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == collectionID {
+				content := service.generateCollectionContent(createPayload.Collection)
+				return createPayload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		versionChecker := NewVersionChecker()
+		originalContent := service.generateCollectionContent(createPayload.Collection)
+		version := versionChecker.CalculateVersion(originalContent)
+
+		// Try invalid slug
+		invalidSlug := "Clearance Sale!"
+		updateInput := UpdateCollectionInput{
+			ID:      collectionID,
+			Slug:    &invalidSlug,
+			Version: version,
+		}
+
+		_, err = service.UpdateCollection(ctx, updateInput)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "lowercase alphanumeric")
+	})
+}
+
+func TestDeleteCollection(t *testing.T) {
+	t.Run("should delete collection", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create collection
+		createInput := CreateCollectionInput{
+			Name: "Seasonal",
+			Slug: "seasonal",
+		}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+		collectionID := createPayload.Collection.ID
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == collectionID {
+				content := service.generateCollectionContent(createPayload.Collection)
+				return createPayload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Delete the collection
+		deleteInput := DeleteCollectionInput{
+			ID: collectionID,
+		}
+
+		payload, err := service.DeleteCollection(ctx, deleteInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload)
+		require.NotNil(t, payload.DeletedCollectionID)
+		assert.Equal(t, collectionID, *payload.DeletedCollectionID)
+
+		// Verify file was deleted
+		filePath := filepath.Join(repoPath, "collections/seasonal.md")
+		_, err = os.Stat(filePath)
+		assert.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("should commit deletion to git", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create collection
+		createInput := CreateCollectionInput{
+			Name: "Limited Edition",
+			Slug: "limited-edition",
+		}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+		collectionID := createPayload.Collection.ID
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == collectionID {
+				content := service.generateCollectionContent(createPayload.Collection)
+				return createPayload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		// Delete
+		deleteInput := DeleteCollectionInput{
+			ID: collectionID,
+		}
+
+		_, err = service.DeleteCollection(ctx, deleteInput)
+		require.NoError(t, err)
+
+		// Verify git commit
+		repo, err := git.PlainOpen(repoPath)
+		require.NoError(t, err)
+
+		ref, err := repo.Head()
+		require.NoError(t, err)
+
+		commit, err := repo.CommitObject(ref.Hash())
+		require.NoError(t, err)
+
+		assert.Contains(t, commit.Message, "delete")
+		assert.Contains(t, commit.Message, "collection")
+		assert.Contains(t, commit.Message, "limited-edition")
+	})
+
+	t.Run("should return clientMutationId", func(t *testing.T) {
+		repoPath, cleanup := setupTestMutationRepo(t)
+		defer cleanup()
+
+		service := NewProductMutationService(repoPath, "")
+		ctx := context.Background()
+
+		// Create collection
+		createInput := CreateCollectionInput{
+			Name: "Featured",
+			Slug: "featured",
+		}
+		createPayload, err := service.CreateCollection(ctx, createInput)
+		require.NoError(t, err)
+		collectionID := createPayload.Collection.ID
+
+		service.readCollectionFromGit = func(id string) (*models.CollectionMutation, string, error) {
+			if id == collectionID {
+				content := service.generateCollectionContent(createPayload.Collection)
+				return createPayload.Collection, content, nil
+			}
+			return nil, "", fmt.Errorf("collection not found")
+		}
+
+		clientID := "delete-collection-123"
+		deleteInput := DeleteCollectionInput{
+			ClientMutationID: &clientID,
+			ID:               collectionID,
+		}
+
+		payload, err := service.DeleteCollection(ctx, deleteInput)
+		require.NoError(t, err)
+		require.NotNil(t, payload.ClientMutationID)
+		assert.Equal(t, "delete-collection-123", *payload.ClientMutationID)
 	})
 }

@@ -214,8 +214,8 @@ Multi-service architecture:
 - [X] T095 [US3] Implement deleteCategory mutation resolver in api/internal/graph/mutations.resolvers.go
 - [X] T096 [US3] Implement reorderCategories mutation resolver in api/internal/graph/mutations.resolvers.go
 - [X] T097 [US3] Implement createCollection mutation resolver in api/internal/graph/mutations.resolvers.go
-- [ ] T098 [US3] Implement updateCollection mutation resolver in api/internal/graph/mutations.resolvers.go
-- [ ] T099 [US3] Implement deleteCollection mutation resolver in api/internal/graph/mutations.resolvers.go
+- [X] T098 [US3] Implement updateCollection mutation resolver in api/internal/graph/mutations.resolvers.go
+- [X] T099 [US3] Implement deleteCollection mutation resolver in api/internal/graph/mutations.resolvers.go
 - [ ] T100 [US3] Implement reorderCollections mutation resolver in api/internal/graph/mutations.resolvers.go
 - [ ] T101 [US3] Implement publishCatalog mutation resolver (commit all changes → push → tag) in api/internal/graph/mutations.resolvers.go
 - [ ] T102 [P] [US3] Implement single admin user authentication middleware in api/internal/middleware/auth.go (bcrypt password check)

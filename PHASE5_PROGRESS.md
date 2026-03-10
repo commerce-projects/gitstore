@@ -3,7 +3,7 @@
 **Feature**: User Story 3 - Admin UI with Mutations
 **Branch**: `002-admin-ui-mutations`
 **Started**: 2026-03-10
-**Status**: 🟡 In Progress (21.3% complete)
+**Status**: 🟡 In Progress (23.4% complete)
 
 ---
 
@@ -15,7 +15,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 
 ---
 
-## Completed Tasks (10/47)
+## Completed Tasks (11/47)
 
 ### Tests (Test-First Development ✅)
 - ✅ **T079**: Contract test for `createProduct` mutation (3 scenarios, skipped)
@@ -76,6 +76,14 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
   - Product model with 27 validation tests
   - **Tests**: 38/38 passing (11 integration + 27 unit) ✅
 
+- ✅ **T091**: updateProduct mutation resolver with optimistic locking
+  - Update any product field with partial updates
+  - Version-based optimistic locking (SHA-256)
+  - Detect concurrent modifications
+  - Generate conflict diffs for resolution
+  - Handle SKU/category changes (file moves)
+  - **Tests**: 8/8 passing ✅
+
 ---
 
 ## Next Steps (Remaining Tasks)
@@ -90,7 +98,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 
 ### GraphQL Mutations (T090-T101)
 - [X] T090: createProduct mutation resolver
-- [ ] T091: updateProduct mutation resolver
+- [X] T091: updateProduct mutation resolver
 - [ ] T092: deleteProduct mutation resolver
 - [ ] T093-T095: Category mutation resolvers (create, update, delete)
 - [ ] T096: reorderCategories mutation resolver
@@ -141,7 +149,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 ✓ TestGenerateCommitMessage (3/3 passing)
 ```
 
-**Total**: 152 test cases (139 passing, 13 skipped)
+**Total**: 160 test cases (147 passing, 13 skipped)
 
 ---
 
@@ -233,6 +241,7 @@ Storefront Reload
 4. **038a175**: feat: implement git push and tag operations (T086-T087)
 5. **ae10779**: feat: implement optimistic locking and diff generation (T088-T089)
 6. **589461c**: feat: implement createProduct mutation resolver (T090)
+7. **471aaa2**: feat: implement updateProduct mutation with optimistic locking (T091)
 
 ---
 
@@ -285,10 +294,10 @@ golangci-lint run ./...
 
 ## Progress Metrics
 
-- **Overall**: 10/47 tasks (21.3%)
+- **Overall**: 11/47 tasks (23.4%)
 - **Git Client**: 4/4 tasks (100%) ✅
 - **Mutation Infrastructure**: 2/2 tasks (100%) ✅
-- **Mutations**: 1/12 tasks (8.3%)
+- **Mutations**: 2/12 tasks (16.7%)
 - **Auth**: 0/2 tasks (0%)
 - **Admin UI**: 0/23 tasks (0%)
 - **Tests**: 28 passing, 13 skipped (correct)
@@ -310,4 +319,4 @@ golangci-lint run ./...
 
 **Last Updated**: 2026-03-10
 **Branch**: https://github.com/commerce-projects/gitstore/tree/002-admin-ui-mutations
-**Status**: First mutation complete! Ready for T091 (updateProduct) and T092 (deleteProduct)
+**Status**: Product mutations progressing! Ready for T092 (deleteProduct)

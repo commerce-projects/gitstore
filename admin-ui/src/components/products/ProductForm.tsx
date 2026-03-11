@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { MarkdownEditor } from '../shared/MarkdownEditor';
 
 // Placeholder types until codegen runs
 interface Product {
@@ -227,17 +228,13 @@ export function ProductForm({ product, onSubmit, onCancel, isLoading = false }: 
           <label htmlFor="description" style={styles.label}>
             Description
           </label>
-          <textarea
-            id="description"
-            name="description"
+          <MarkdownEditor
             value={formData.description || ''}
-            onChange={handleChange}
-            style={styles.textarea}
+            onChange={(value) => setFormData(prev => ({ ...prev, description: value }))}
             placeholder="Product description (supports Markdown)"
-            rows={6}
             disabled={isLoading}
+            rows={10}
           />
-          <span style={styles.helpText}>Supports Markdown formatting</span>
         </div>
       </div>
 

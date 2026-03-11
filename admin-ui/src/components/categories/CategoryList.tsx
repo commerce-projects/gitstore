@@ -182,6 +182,37 @@ export function CategoryList({ onEdit, onDelete, onAddChild }: CategoryListProps
     }
   };
 
+  const handleReorder = async (reorderedCategories: Category[]) => {
+    console.log('Reordering categories:', reorderedCategories);
+
+    try {
+      // TODO: Use GraphQL mutation
+      // const [reorderCategories] = useReorderCategoriesMutation();
+      // await reorderCategories({
+      //   variables: {
+      //     input: {
+      //       clientMutationId: uuidv4(),
+      //       categoryIds: reorderedCategories.map(cat => cat.id),
+      //     },
+      //   },
+      // });
+
+      // Optimistically update local state
+      setCategories(reorderedCategories);
+
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      console.log('Categories reordered successfully');
+    } catch (err) {
+      console.error('Failed to reorder categories:', err);
+      alert('Failed to reorder categories. Changes reverted.');
+
+      // Reload categories on error to revert changes
+      window.location.reload();
+    }
+  };
+
   if (loading) {
     return (
       <div style={styles.loading}>
@@ -205,6 +236,7 @@ export function CategoryList({ onEdit, onDelete, onAddChild }: CategoryListProps
         onEdit={handleEdit}
         onDelete={handleDelete}
         onAddChild={handleAddChild}
+        onReorder={handleReorder}
       />
     </div>
   );

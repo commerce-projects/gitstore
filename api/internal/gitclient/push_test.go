@@ -3,9 +3,11 @@ package gitclient
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +39,13 @@ func setupPushTestRepos(t *testing.T) (localPath string, remotePath string, clea
 	_, err = worktree.Add("README.md")
 	require.NoError(t, err)
 
-	_, err = worktree.Commit("Initial commit", &git.CommitOptions{})
+	_, err = worktree.Commit("Initial commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test Author",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+	})
 	require.NoError(t, err)
 
 	cleanup = func() {

@@ -3,7 +3,7 @@
 **Feature**: User Story 3 - Admin UI with Mutations
 **Branch**: `002-admin-ui-mutations`
 **Started**: 2026-03-10
-**Status**: 🟡 In Progress (89.4% complete)
+**Status**: 🟡 In Progress (91.5% complete)
 
 ---
 
@@ -15,7 +15,7 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
 
 ---
 
-## Completed Tasks (42/47)
+## Completed Tasks (43/47)
 
 ### Tests (Test-First Development ✅)
 - ✅ **T079**: Contract test for `createProduct` mutation (3 scenarios, skipped)
@@ -283,6 +283,17 @@ Implementing Phase 5 to add GraphQL mutations and Admin UI for non-technical use
   - Integrated with Header component
   - Async publish handler support
 
+- ✅ **T123**: Publish flow implementation (`admin-ui/src/lib/publish.ts`, `admin-ui/src/components/shared/PublishModal.tsx`)
+  - PublishModal with version input and confirmation
+  - Auto-generate version or custom semver input
+  - Release message textarea (minimum 10 characters)
+  - Validation for version format and message length
+  - publishCatalog function calling GraphQL mutation
+  - hasUncommittedChanges checker with periodic polling
+  - Error handling and user feedback
+  - Success confirmation with version display
+  - Integrated with Header component
+
 ---
 
 ## Next Steps (Remaining Tasks)
@@ -518,7 +529,7 @@ golangci-lint run ./...
 
 ## Progress Metrics
 
-- **Overall**: 42/47 tasks (89.4%)
+- **Overall**: 43/47 tasks (91.5%)
 - **Git Client**: 4/4 tasks (100%) ✅
 - **Mutation Infrastructure**: 2/2 tasks (100%) ✅
 - **Product Mutations**: 3/3 tasks (100%) ✅
@@ -526,10 +537,10 @@ golangci-lint run ./...
 - **Collection Mutations**: 4/4 tasks (100%) ✅
 - **Publish Mutation**: 1/1 tasks (100%) ✅
 - **Auth**: 2/2 tasks (100%) ✅
-- **Admin UI**: 19/23 tasks (82.6%) 🟡
+- **Admin UI**: 20/23 tasks (87.0%) 🟡
 - **Tests**: 296 passing, 48 skipped
 
-**Estimated Remaining**: ~5 tasks (~11% remaining)
+**Estimated Remaining**: ~4 tasks (~9% remaining)
 
 ---
 
@@ -551,4 +562,4 @@ golangci-lint run ./...
 
 **Last Updated**: 2026-03-11
 **Branch**: https://github.com/commerce-projects/gitstore/tree/002-admin-ui-mutations
-**Status**: Admin UI nearly complete! 19/23 UI tasks done. Remaining: Publish flow modal (T123), optimistic updates (T125), validation (T126). E2E tests deferred.
+**Status**: Admin UI almost done! 20/23 UI tasks complete. Remaining: Conflict modal (T124 - already exists), optimistic updates (T125), validation (T126). E2E tests deferred.

@@ -1,13 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/auth-context';
 import { PublishButton } from './shared/PublishButton';
+import { PublishModal } from './shared/PublishModal';
+import { useApolloClient } from '@apollo/client';
+import { publishCatalog, hasUncommittedChanges, formatPublishError } from '../lib/publish';
 
 /**
  * Application header with navigation and user menu
  */
 export function Header() {
   const { user, logout } = useAuth();
+  const client = useApolloClient();
   const [hasChanges, setHasChanges] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  // Check for uncommitted changes periodically
+  useEffect(() => {
+    const checkChanges = async () => {
+      try {
+        const changes = await hasUncommittedChanges(client);
+        setHasChanges(changes);
+      } catch (error) {
+        console.error('Failed to check for changes:', error);
+      }
+    };
+
+    // Check immediately
+    checkChanges();
+
+    // Check every 30 seconds
+    const interval = setInterval(checkChanges, 30000);
+
+    return () => clearInterval(interval);
+  }, [client]);
 
   const handleLogout = async () => {
     try {
@@ -18,47 +45,85 @@ export function Header() {
     }
   };
 
-  const handlePublish = async () => {
-    // This will be implemented in T123
-    console.log('Publishing catalog...');
-    // TODO: Open publish modal with version input and confirmation
+  const handlePublishClick = () => {
+    setPublishError(null);
+    setIsModalOpen(true);
+  };
+
+  const handlePublishConfirm = async (version: string, message: string) => {
+    setIsPublishing(true);
+    setPublishError(null);
+
+    try {
+      const result = await publishCatalog(client, message, version || undefined);
+
+      if (result.success) {
+        console.log('Catalog published successfully:', result.version);
+        setIsModalOpen(false);
+        setHasChanges(false);
+
+        // Show success message
+        alert(`Catalog published successfully!\nVersion: ${result.version}`);
+
+        // Optionally reload the page to reflect changes
+        // window.location.reload();
+      } else {
+        throw new Error(result.message || 'Publish failed');
+      }
+    } catch (error) {
+      console.error('Publish failed:', error);
+      const errorMessage = formatPublishError(error);
+      setPublishError(errorMessage);
+      alert(`Publish failed: ${errorMessage}`);
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   return (
-    <header style={styles.header}>
-      <div style={styles.container}>
-        <div style={styles.brand}>
-          <h1 style={styles.title}>GitStore Admin</h1>
-        </div>
+    <>
+      <header style={styles.header}>
+        <div style={styles.container}>
+          <div style={styles.brand}>
+            <h1 style={styles.title}>GitStore Admin</h1>
+          </div>
 
-        <nav style={styles.nav}>
-          <a href="/products" style={styles.navLink}>
-            Products
-          </a>
-          <a href="/categories" style={styles.navLink}>
-            Categories
-          </a>
-          <a href="/collections" style={styles.navLink}>
-            Collections
-          </a>
-        </nav>
+          <nav style={styles.nav}>
+            <a href="/products" style={styles.navLink}>
+              Products
+            </a>
+            <a href="/categories" style={styles.navLink}>
+              Categories
+            </a>
+            <a href="/collections" style={styles.navLink}>
+              Collections
+            </a>
+          </nav>
 
-        <div style={styles.actions}>
-          <PublishButton onPublish={handlePublish} hasChanges={hasChanges} />
-        </div>
+          <div style={styles.actions}>
+            <PublishButton onPublish={handlePublishClick} hasChanges={hasChanges} />
+          </div>
 
-        <div style={styles.userMenu}>
-          {user && (
-            <>
-              <span style={styles.username}>{user.username}</span>
-              <button onClick={handleLogout} style={styles.logoutBtn}>
-                Logout
-              </button>
-            </>
-          )}
+          <div style={styles.userMenu}>
+            {user && (
+              <>
+                <span style={styles.username}>{user.username}</span>
+                <button onClick={handleLogout} style={styles.logoutBtn}>
+                  Logout
+                </button>
+              </>
+            )}
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      <PublishModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onConfirm={handlePublishConfirm}
+        isPublishing={isPublishing}
+      />
+    </>
   );
 }
 

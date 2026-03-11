@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/commerce-projects/gitstore/api/internal/graph/generated"
 	"github.com/commerce-projects/gitstore/api/internal/graph/model"
 	"github.com/commerce-projects/gitstore/api/internal/models"
 	"go.uber.org/zap"
@@ -101,7 +102,7 @@ func (r *queryResolver) Products(ctx context.Context, first *int32, after *strin
 }
 
 // Category returns a category by slug
-func (r *queryResolver) Category(ctx context.Context, slug string) (*models.Category, error) {
+func (r *queryResolver) Category(ctx context.Context, slug string) (*model.Category, error) {
 	r.logger.Debug("Fetching category by slug", zap.String("slug", slug))
 
 	// Get catalog from cache
@@ -142,7 +143,7 @@ func (r *queryResolver) CategoryByID(ctx context.Context, id string) (*model.Cat
 }
 
 // Categories returns all categories in hierarchical structure
-func (r *queryResolver) Categories(ctx context.Context) ([]*models.Category, error) {
+func (r *queryResolver) Categories(ctx context.Context) ([]*model.Category, error) {
 	r.logger.Debug("Fetching all categories")
 
 	// Get catalog from cache
@@ -174,7 +175,7 @@ func (r *queryResolver) Categories(ctx context.Context) ([]*models.Category, err
 }
 
 // Collection returns a collection by slug
-func (r *queryResolver) Collection(ctx context.Context, slug string) (*models.Collection, error) {
+func (r *queryResolver) Collection(ctx context.Context, slug string) (*model.Collection, error) {
 	r.logger.Debug("Fetching collection by slug", zap.String("slug", slug))
 
 	// Get catalog from cache
@@ -201,8 +202,13 @@ func (r *queryResolver) Collection(ctx context.Context, slug string) (*models.Co
 	return modelColl, nil
 }
 
+// CollectionByID is the resolver for the collectionById field.
+func (r *queryResolver) CollectionByID(ctx context.Context, id string) (*model.Collection, error) {
+	panic(fmt.Errorf("not implemented: CollectionByID - collectionById"))
+}
+
 // Collections returns all collections
-func (r *queryResolver) Collections(ctx context.Context) ([]*models.Collection, error) {
+func (r *queryResolver) Collections(ctx context.Context) ([]*model.Collection, error) {
 	r.logger.Debug("Fetching all collections")
 
 	// Get catalog from cache
@@ -233,25 +239,16 @@ func (r *queryResolver) Collections(ctx context.Context) ([]*models.Collection, 
 	return result, nil
 }
 
-// CollectionByID is the resolver for the collectionById field.
-func (r *queryResolver) CollectionByID(ctx context.Context, id string) (*model.Collection, error) {
-	panic(fmt.Errorf("not implemented: CollectionByID - collectionById"))
-}
-
 // CatalogVersion is the resolver for the catalogVersion field.
 func (r *queryResolver) CatalogVersion(ctx context.Context) (*model.CatalogVersion, error) {
 	panic(fmt.Errorf("not implemented: CatalogVersion - catalogVersion"))
 }
 
-// Mutation returns MutationResolver interface
-func (r *Resolver) Mutation() MutationResolver {
-	return &mutationResolver{r}
-}
+// Mutation returns generated.MutationResolver implementation.
+func (r *Resolver) Mutation() generated.MutationResolver { return &mutationResolver{r} }
 
-// Query returns QueryResolver interface
-func (r *Resolver) Query() QueryResolver {
-	return &queryResolver{r}
-}
+// Query returns generated.QueryResolver implementation.
+func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
 
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }

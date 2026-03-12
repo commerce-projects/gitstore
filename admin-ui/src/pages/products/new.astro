@@ -8,8 +8,8 @@ import { CreateProductPage } from '../../components/products/CreateProductPage';
 
 <Layout title="New Product - GitStore Admin">
   <App client:only="react">
-    <ProtectedRoute client:only="react">
-      <Header client:only="react" />
+    <ProtectedRoute>
+      <Header />
       <main>
         <div class="page-header">
           <div class="breadcrumbs">
@@ -20,7 +20,7 @@ import { CreateProductPage } from '../../components/products/CreateProductPage';
           <h1>Create Product</h1>
           <p class="subtitle">Add a new product to your catalog</p>
         </div>
-        <CreateProductPage client:only="react" />
+        <CreateProductPage />
       </main>
     </ProtectedRoute>
   </App>

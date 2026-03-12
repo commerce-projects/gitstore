@@ -11,8 +11,8 @@ const { id } = Astro.params;
 
 <Layout title="Edit Product - GitStore Admin">
   <App client:only="react">
-    <ProtectedRoute client:only="react">
-      <Header client:only="react" />
+    <ProtectedRoute>
+      <Header />
       <main>
         <div class="page-header">
           <div class="breadcrumbs">

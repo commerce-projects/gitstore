@@ -74,6 +74,8 @@ Apollo Client v3.x uses mixed CommonJS/ESM exports that Vite cannot properly res
 - ❌ Playwright webServer times out (can't detect server is ready)
 - ❌ E2E tests cannot run automatically
 - ❌ Test verification of mock resolvers blocked
+- ❌ **CRITICAL**: Pages using React+Apollo return SyntaxError, not just server startup issue
+- ❌ Even manual dev server has errors when navigating to /products or other React pages
 
 ## What Tests Are Doing
 

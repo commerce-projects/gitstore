@@ -1,7 +1,7 @@
-import React, { type ReactNode } from 'react';
+import React, { type ReactNode, useMemo } from 'react';
 import { Provider as UrqlProvider } from 'urql';
 import { AuthProvider } from '../lib/auth-context';
-import { urqlClient } from '../lib/urql-client';
+import { getUrqlClient } from '../lib/urql-client';
 
 interface AppProps {
   children: ReactNode;
@@ -13,6 +13,9 @@ interface AppProps {
  * - UrqlProvider: GraphQL client for data fetching
  */
 export function App({ children }: AppProps) {
+  // Create client only once when component mounts (in browser)
+  const urqlClient = useMemo(() => getUrqlClient(), []);
+
   return (
     <UrqlProvider value={urqlClient}>
       <AuthProvider>

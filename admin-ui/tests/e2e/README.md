@@ -31,7 +31,7 @@ Tests the drag-and-drop category reordering functionality:
 ### Option 1: Auto-start Dev Server (Recommended)
 Playwright will automatically start the dev server when you run tests. Just ensure:
 - API server is running on port 4000
-- Port 4321 is available for the dev server
+- Port 3000 is available for the dev server
 - Dependencies are installed (`npm install`)
 
 ### Option 2: Manual Server Start
@@ -41,7 +41,7 @@ If you prefer to start servers manually:
    cd api && go run cmd/server/main.go
    ```
 
-2. **Admin UI Dev Server**: Start on http://localhost:4321
+2. **Admin UI Dev Server**: Start on http://localhost:3000
    ```bash
    cd admin-ui && npm run dev
    ```
@@ -123,7 +123,7 @@ Tests are configured to run in CI with:
 ## Configuration
 
 Test configuration is in `playwright.config.ts`:
-- **Base URL**: http://localhost:4321
+- **Base URL**: http://localhost:3000
 - **Timeout**: 120 seconds for web server startup
 - **Browsers**: Chromium, Firefox, WebKit
 - **Test Directory**: `tests/e2e/`
@@ -167,9 +167,9 @@ This means Playwright couldn't start the dev server. Common causes:
    cd api && go run cmd/server/main.go
    ```
 
-2. **Port 4321 already in use**: Kill the process or change the port
+2. **Port 3000 already in use**: Kill the process or change the port
    ```bash
-   lsof -ti:4321 | xargs kill -9
+   lsof -ti:3000 | xargs kill -9
    ```
 
 3. **Dependencies not installed**: Install npm packages

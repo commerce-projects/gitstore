@@ -8,11 +8,9 @@ package graph
 import (
 	"context"
 	"fmt"
-	"sort"
 
+	"github.com/commerce-projects/gitstore/api/internal/graph/generated"
 	"github.com/commerce-projects/gitstore/api/internal/graph/model"
-	"github.com/commerce-projects/gitstore/api/internal/models"
-	"go.uber.org/zap"
 )
 
 // CreateProduct is the resolver for the createProduct field.
@@ -101,39 +99,8 @@ func (r *queryResolver) Products(ctx context.Context, first *int32, after *strin
 }
 
 // Category returns a category by slug
-func (r *queryResolver) Category(ctx context.Context, slug string) (*models.Category, error) {
-	r.logger.Debug("Fetching category by slug", zap.String("slug", slug))
-
-	// Get catalog from cache
-	cat, err := r.cache.Get(ctx)
-	if err != nil {
-		r.logger.Error("Failed to load catalog", zap.Error(err))
-		return nil, err
-	}
-
-	// Get category by slug
-	catalogCat, ok := cat.GetCategoryBySlug(slug)
-	if !ok {
-		r.logger.Debug("Category not found", zap.String("slug", slug))
-		return nil, nil
-	}
-
-	// Build full tree to get parent/children relationships
-	tree := buildCategoryTree(cat.AllCategories())
-
-	// Get the category with relationships from tree
-	modelCat, ok := tree.GetCategory(catalogCat.ID)
-	if !ok {
-		// This shouldn't happen, but handle gracefully
-		modelCat = catalogCategoryToModel(catalogCat)
-	}
-
-	r.logger.Debug("Category found",
-		zap.String("slug", slug),
-		zap.String("id", modelCat.ID),
-	)
-
-	return modelCat, nil
+func (r *queryResolver) Category(ctx context.Context, slug string) (*model.Category, error) {
+	panic(fmt.Errorf("not implemented: Category - category"))
 }
 
 // CategoryByID is the resolver for the categoryById field.
@@ -142,63 +109,13 @@ func (r *queryResolver) CategoryByID(ctx context.Context, id string) (*model.Cat
 }
 
 // Categories returns all categories in hierarchical structure
-func (r *queryResolver) Categories(ctx context.Context) ([]*models.Category, error) {
-	r.logger.Debug("Fetching all categories")
-
-	// Get catalog from cache
-	cat, err := r.cache.Get(ctx)
-	if err != nil {
-		r.logger.Error("Failed to load catalog", zap.Error(err))
-		return nil, err
-	}
-
-	// Get all categories from catalog
-	catalogCategories := cat.AllCategories()
-
-	// Build category tree
-	tree := models.NewCategoryTree()
-	for _, cat := range catalogCategories {
-		modelCat := catalogCategoryToModel(cat)
-		tree.AddCategory(modelCat)
-	}
-	tree.Build()
-
-	// Return all categories in flat list (sorted by hierarchy)
-	result := tree.GetFlatList()
-
-	r.logger.Debug("Categories fetched",
-		zap.Int("count", len(result)),
-	)
-
-	return result, nil
+func (r *queryResolver) Categories(ctx context.Context) ([]*model.Category, error) {
+	panic(fmt.Errorf("not implemented: Categories - categories"))
 }
 
 // Collection returns a collection by slug
-func (r *queryResolver) Collection(ctx context.Context, slug string) (*models.Collection, error) {
-	r.logger.Debug("Fetching collection by slug", zap.String("slug", slug))
-
-	// Get catalog from cache
-	cat, err := r.cache.Get(ctx)
-	if err != nil {
-		r.logger.Error("Failed to load catalog", zap.Error(err))
-		return nil, err
-	}
-
-	// Get collection by slug
-	catalogColl, ok := cat.GetCollectionBySlug(slug)
-	if !ok {
-		r.logger.Debug("Collection not found", zap.String("slug", slug))
-		return nil, nil
-	}
-
-	modelColl := catalogCollectionToModel(catalogColl)
-
-	r.logger.Debug("Collection found",
-		zap.String("slug", slug),
-		zap.String("id", modelColl.ID),
-	)
-
-	return modelColl, nil
+func (r *queryResolver) Collection(ctx context.Context, slug string) (*model.Collection, error) {
+	panic(fmt.Errorf("not implemented: Collection - collection"))
 }
 
 // CollectionByID is the resolver for the collectionById field.
@@ -207,35 +124,8 @@ func (r *queryResolver) CollectionByID(ctx context.Context, id string) (*model.C
 }
 
 // Collections returns all collections
-func (r *queryResolver) Collections(ctx context.Context) ([]*models.Collection, error) {
-	r.logger.Debug("Fetching all collections")
-
-	// Get catalog from cache
-	cat, err := r.cache.Get(ctx)
-	if err != nil {
-		r.logger.Error("Failed to load catalog", zap.Error(err))
-		return nil, err
-	}
-
-	// Get all collections from catalog
-	catalogCollections := cat.AllCollections()
-
-	// Convert to model collections
-	result := make([]*models.Collection, 0, len(catalogCollections))
-	for _, coll := range catalogCollections {
-		result = append(result, catalogCollectionToModel(coll))
-	}
-
-	// Sort by display order
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].DisplayOrder < result[j].DisplayOrder
-	})
-
-	r.logger.Debug("Collections fetched",
-		zap.Int("count", len(result)),
-	)
-
-	return result, nil
+func (r *queryResolver) Collections(ctx context.Context) ([]*model.Collection, error) {
+	panic(fmt.Errorf("not implemented: Collections - collections"))
 }
 
 // CatalogVersion is the resolver for the catalogVersion field.
@@ -243,13 +133,13 @@ func (r *queryResolver) CatalogVersion(ctx context.Context) (*model.CatalogVersi
 	panic(fmt.Errorf("not implemented: CatalogVersion - catalogVersion"))
 }
 
-// Mutation returns MutationResolver interface
-func (r *Resolver) Mutation() MutationResolver {
+// Mutation returns generated.MutationResolver interface
+func (r *Resolver) Mutation() generated.MutationResolver {
 	return &mutationResolver{r}
 }
 
-// Query returns QueryResolver interface
-func (r *Resolver) Query() QueryResolver {
+// Query returns generated.QueryResolver interface
+func (r *Resolver) Query() generated.QueryResolver {
 	return &queryResolver{r}
 }
 

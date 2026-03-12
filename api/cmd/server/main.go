@@ -12,10 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/commerce-projects/gitstore/api/internal/cache"
 	"github.com/commerce-projects/gitstore/api/internal/catalog"
-	_ "github.com/commerce-projects/gitstore/api/internal/graph"
+	"github.com/commerce-projects/gitstore/api/internal/graph"
+	"github.com/commerce-projects/gitstore/api/internal/graph/generated"
+	"github.com/commerce-projects/gitstore/api/internal/handler"
 	"github.com/commerce-projects/gitstore/api/internal/logger"
 	"github.com/commerce-projects/gitstore/api/internal/middleware"
 	"github.com/commerce-projects/gitstore/api/internal/websocket"
@@ -93,19 +96,25 @@ func main() {
 		}
 	}()
 
-	// TODO: Create GraphQL resolver when gqlgen is run
-	// resolver := graph.NewResolver(cacheManager)
-	// srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: resolver}))
+	// Create auth middleware
+	authMiddleware, err := middleware.NewAuthMiddleware()
+	if err != nil {
+		logger.Log.Fatal("Failed to create auth middleware", zap.Error(err))
+	}
+
+	// Create GraphQL resolver
+	resolver := graph.NewResolver(cacheManager)
+	gqlServer := gqlhandler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: resolver}))
 
 	// Create HTTP server
 	mux := http.NewServeMux()
 
-	// GraphQL endpoint (placeholder)
-	mux.HandleFunc("/graphql", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprintf(w, `{"errors":[{"message":"GraphQL server not yet implemented - gqlgen code generation required"}]}`)
-	})
+	// Authentication endpoints
+	loginHandler := handler.NewLoginHandler(authMiddleware, logger.Log)
+	mux.Handle("/api/login", loginHandler)
+
+	// GraphQL endpoint
+	mux.Handle("/graphql", gqlServer)
 
 	// Playground endpoint
 	mux.Handle("/playground", playground.Handler("GraphQL Playground", "/graphql"))

@@ -29,25 +29,3 @@ func NewResolver(cacheManager *cache.Manager) *Resolver {
 func (r *Resolver) getLoaders(ctx context.Context) *loader.Loaders {
 	return loader.FromContext(ctx)
 }
-
-// Category returns CategoryResolver interface
-func (r *Resolver) Category() CategoryResolver {
-	return &categoryResolver{r}
-}
-
-// Collection returns CollectionResolver interface
-func (r *Resolver) Collection() CollectionResolver {
-	return &collectionResolver{r}
-}
-
-// QueryResolver interface
-type QueryResolver interface{}
-
-// MutationResolver interface
-type MutationResolver interface{}
-
-// CategoryResolver interface
-type CategoryResolver interface{}
-
-// CollectionResolver interface
-type CollectionResolver interface{}

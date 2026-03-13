@@ -20,14 +20,19 @@ import (
 type Service struct {
 	cacheManager *cache.Manager
 	repoPath     string
+	gitClient    *gitclient.HTTPGitClient
 	logger       *zap.Logger
 }
 
 // NewService creates a new service instance
-func NewService(cacheManager *cache.Manager, repoPath string, logger *zap.Logger) *Service {
+func NewService(cacheManager *cache.Manager, repoPath string, gitServerURL string, logger *zap.Logger) *Service {
+	// Create HTTP git client
+	gitClient := gitclient.NewHTTPGitClient(gitServerURL, "catalog.git", repoPath, logger)
+
 	return &Service{
 		cacheManager: cacheManager,
 		repoPath:     repoPath,
+		gitClient:    gitClient,
 		logger:       logger,
 	}
 }
@@ -223,29 +228,10 @@ func (s *Service) DeleteProduct(ctx context.Context, id string) error {
 		return fmt.Errorf("product not found: %s", id)
 	}
 
-	// Delete file from git using CommitBuilder
+	// Delete file via git-server HTTP
 	filePath := filepath.Join("products", id+".md")
-	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
-	if err != nil {
-		return fmt.Errorf("failed to create commit builder: %w", err)
-	}
-
-	// Delete file
-	if err := commitBuilder.DeleteFile(filePath); err != nil {
-		return fmt.Errorf("failed to delete file: %w", err)
-	}
-
-	// Stage the deletion
-	if err := commitBuilder.StageFile(filePath); err != nil {
-		return fmt.Errorf("failed to stage deletion: %w", err)
-	}
-
-	// Commit
-	_, err = commitBuilder.Commit(gitclient.CommitOptions{
-		Message: "Delete product: " + product.Title,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
+	if err := s.gitClient.PushDelete(ctx, filePath, "Delete product: "+product.Title); err != nil {
+		return fmt.Errorf("failed to push deletion to git-server: %w", err)
 	}
 
 	// Reload catalog
@@ -261,29 +247,10 @@ func (s *Service) writeProductToGit(ctx context.Context, product *catalog.Produc
 	// Create markdown content
 	content := formatProductMarkdown(product)
 
-	// Write to git using CommitBuilder
+	// Push to git-server via HTTP
 	filePath := filepath.Join("products", product.ID+".md")
-	commitBuilder, err := gitclient.NewCommitBuilder(s.repoPath)
-	if err != nil {
-		return fmt.Errorf("failed to create commit builder: %w", err)
-	}
-
-	// Write file to disk
-	if err := commitBuilder.WriteFile(filePath, content); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-
-	// Stage file
-	if err := commitBuilder.StageFile(filePath); err != nil {
-		return fmt.Errorf("failed to stage file: %w", err)
-	}
-
-	// Commit
-	_, err = commitBuilder.Commit(gitclient.CommitOptions{
-		Message: commitMessage,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
+	if err := s.gitClient.PushChange(ctx, filePath, content, commitMessage); err != nil {
+		return fmt.Errorf("failed to push to git-server: %w", err)
 	}
 
 	return nil

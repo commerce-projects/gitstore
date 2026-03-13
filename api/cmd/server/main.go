@@ -30,6 +30,7 @@ func main() {
 	port := flag.Int("port", getEnvInt("GITSTORE_API_PORT", 4000), "API server port")
 	gitWS := flag.String("git-ws", getEnv("GITSTORE_GIT_WS", "ws://localhost:8080"), "Git server websocket URL")
 	gitRepo := flag.String("git-repo", getEnv("GITSTORE_GIT_REPO", "/data/repos/catalog.git"), "Git repository path")
+	gitServerURL := flag.String("git-server-url", getEnv("GITSTORE_GIT_SERVER_URL", "http://localhost:9418"), "Git server HTTP URL")
 	cacheTTL := flag.Int("cache-ttl", getEnvInt("GITSTORE_CACHE_TTL", 300), "Cache TTL in seconds")
 	flag.Parse()
 
@@ -44,6 +45,7 @@ func main() {
 		zap.Int("port", *port),
 		zap.String("git_ws", *gitWS),
 		zap.String("git_repo", *gitRepo),
+		zap.String("git_server_url", *gitServerURL),
 		zap.Int("cache_ttl", *cacheTTL),
 	)
 
@@ -103,7 +105,7 @@ func main() {
 	}
 
 	// Create GraphQL resolver
-	resolver := graph.NewResolver(cacheManager, *gitRepo)
+	resolver := graph.NewResolver(cacheManager, *gitRepo, *gitServerURL)
 	gqlServer := gqlhandler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: resolver}))
 
 	// Create HTTP server

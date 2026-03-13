@@ -19,11 +19,11 @@ type Resolver struct {
 }
 
 // NewResolver creates a new GraphQL resolver
-func NewResolver(cacheManager *cache.Manager, repoPath string) *Resolver {
+func NewResolver(cacheManager *cache.Manager, repoPath string, gitServerURL string) *Resolver {
 	return &Resolver{
 		logger:  logger.Log,
 		cache:   cacheManager,
-		service: NewService(cacheManager, repoPath, logger.Log),
+		service: NewService(cacheManager, repoPath, gitServerURL, logger.Log),
 	}
 }
 

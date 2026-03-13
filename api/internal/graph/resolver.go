@@ -28,6 +28,7 @@ func NewResolver(cacheManager *cache.Manager, repoPath string, gitServerURL stri
 }
 
 // getLoaders retrieves data loaders from context
+//
 //lint:ignore U1000 Reserved for future DataLoader implementation
 func (r *Resolver) getLoaders(ctx context.Context) *loader.Loaders {
 	return loader.FromContext(ctx)

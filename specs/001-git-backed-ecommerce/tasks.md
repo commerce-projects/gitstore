@@ -146,10 +146,10 @@ Multi-service architecture:
 
 #### Git Server (Rust) - Validation Extensions
 
-- [ ] T058 [P] [US2] Implement Category validation logic in git-server/src/validation/category.rs (slug uniqueness, parent references, circular detection)
-- [ ] T059 [P] [US2] Implement Collection validation logic in git-server/src/validation/collection.rs (slug uniqueness, product references)
-- [ ] T060 [US2] Update Product validation to check category_id references in git-server/src/validation/product.rs
-- [ ] T061 [US2] Add category/collection validation to orchestrator in git-server/src/validation/validator.rs
+- [X] T058 [P] [US2] Implement Category validation logic in git-server/src/validation/category.rs (slug uniqueness, parent references, circular detection)
+- [X] T059 [P] [US2] Implement Collection validation logic in git-server/src/validation/collection.rs (slug uniqueness, product references)
+- [X] T060 [US2] Update Product validation to check category_id references in git-server/src/validation/product.rs
+- [X] T061 [US2] Add category/collection validation to orchestrator in git-server/src/validation/validator.rs
 
 #### GraphQL API (Go) - Category & Collection Queries
 

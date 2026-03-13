@@ -1,7 +1,5 @@
 // Validation orchestrator - coordinates validation of all catalog entities
 
-use git2::{ObjectType, Oid, Repository};
-use std::str;
 use crate::models::parser::parse_markdown_with_frontmatter;
 use crate::models::{Category, Collection, Product};
 use crate::validation::category::{
@@ -18,6 +16,8 @@ use crate::validation::product::{
     validate_product, ProductValidationError,
 };
 use anyhow::{Context, Result};
+use git2::{ObjectType, Oid, Repository};
+use std::str;
 use tracing::{debug, info, warn};
 
 /// Git push validator (public API)

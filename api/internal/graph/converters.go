@@ -31,7 +31,7 @@ func CatalogProductToGraphQL(p *catalog.Product) *model.Product {
 		Body:              &p.Body,
 		InventoryStatus:   model.InventoryStatus(p.InventoryStatus),
 		InventoryQuantity: invQty,
-		Category:          nil, // TODO: lookup category if needed
+		Category:          nil,                   // TODO: lookup category if needed
 		Collections:       []*model.Collection{}, // TODO: lookup collections if needed
 		Images:            p.Images,
 		Metadata:          p.Metadata,
@@ -47,14 +47,14 @@ func CatalogCategoryToGraphQL(c *catalog.Category) *model.Category {
 	}
 
 	return &model.Category{
-		ID:          c.ID,
-		Name:        c.Name,
-		Slug:        c.Slug,
-		Body:        &c.Body,
-		Parent:      nil, // TODO: lookup parent if needed
-		Children:    []*model.Category{}, // TODO: lookup children if needed
-		CreatedAt:   c.CreatedAt,
-		UpdatedAt:   c.UpdatedAt,
+		ID:        c.ID,
+		Name:      c.Name,
+		Slug:      c.Slug,
+		Body:      &c.Body,
+		Parent:    nil,                 // TODO: lookup parent if needed
+		Children:  []*model.Category{}, // TODO: lookup children if needed
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
 	}
 }
 
